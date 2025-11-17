@@ -355,6 +355,7 @@ impl BackendState {
                     modal_action.set_visit_url(ModalActionVisitUrl {
                         message: "Login with Microsoft".into(),
                         url: pending.url.as_str().into(),
+                        prevent_auto_finish: false,
                     });
                     self.send.send(MessageToFrontend::Refresh);
 

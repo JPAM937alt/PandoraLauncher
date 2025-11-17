@@ -1,21 +1,29 @@
-use std::sync::{
+use std::{path::{Path, PathBuf}, sync::{
     atomic::{AtomicUsize, Ordering}, Arc, Mutex
-};
+}};
 
 use bridge::{
-    handle::BackendHandle, instance::{InstanceID, InstanceModSummary}, message::MessageToBackend
+    handle::BackendHandle, instance::{InstanceID, InstanceModSummary}, message::{LogFiles, MessageToBackend}
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
-    button::{Button, ButtonVariants}, h_flex, list::{ListDelegate, ListItem, ListState}, switch::Switch, v_flex, ActiveTheme as _, Icon, IconName, IndexPath
+    button::{Button, ButtonVariants}, h_flex, list::{ListDelegate, ListItem, ListState}, select::{Select, SelectEvent, SelectState}, spinner::Spinner, switch::Switch, v_flex, ActiveTheme as _, Icon, IconName, IndexPath, Sizable
 };
 use rustc_hash::FxHashSet;
 
-use crate::{entity::instance::InstanceEntry, png_render_cache};
+use crate::{component::{named_dropdown::{NamedDropdown, NamedDropdownItem}, readonly_text_field::{ReadonlyTextField, ReadonlyTextFieldWithControls}}, entity::instance::InstanceEntry, png_render_cache, root};
 
 pub struct InstanceLogsSubpage {
     instance: InstanceID,
     backend_handle: BackendHandle,
+    log_content: Option<Entity<ReadonlyTextFieldWithControls>>,
+    no_available_logs: bool,
+    available_logs: Option<Entity<SelectState<NamedDropdown<Arc<Path>>>>>,
+    clean_old_logs_text: Option<SharedString>,
+    last_selected_path: Option<Arc<Path>>,
+    _read_log_task: Option<Task<()>>,
+    _get_log_files_task: Task<()>,
+    _dropdown_change_subscrption: Option<Subscription>,
 }
 
 impl InstanceLogsSubpage {
@@ -28,10 +36,124 @@ impl InstanceLogsSubpage {
         let instance = instance.read(cx);
         let instance_id = instance.id;
 
-        Self {
+        let mut this = Self {
             instance: instance_id,
             backend_handle,
-        }
+            log_content: None,
+            no_available_logs: false,
+            available_logs: None,
+            clean_old_logs_text: None,
+            last_selected_path: None,
+            _read_log_task: None,
+            _get_log_files_task: Task::ready(()),
+            _dropdown_change_subscrption: None,
+        };
+
+        this.get_log_files(window, cx);
+
+        this
+    }
+}
+
+impl InstanceLogsSubpage {
+    pub fn get_log_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.no_available_logs = false;
+        self.log_content = None;
+        self.available_logs = None;
+        self.clean_old_logs_text = None;
+        self.last_selected_path = None;
+        self._read_log_task = None;
+        self._dropdown_change_subscrption = None;
+
+        let (send, recv) = tokio::sync::oneshot::channel();
+        self._get_log_files_task = cx.spawn_in(window, async move |page, cx| {
+            let result: LogFiles = recv.await.unwrap_or_else(|_| LogFiles { paths: Vec::new(), total_gzipped_size: 0 });
+            let _ = page.update_in(cx, move |page, window, cx| {
+                if result.paths.is_empty() {
+                    page.no_available_logs = true;
+                } else {
+                    let items = result.paths.into_iter().filter_map(|path| {
+                        Some(NamedDropdownItem {
+                            name: SharedString::new(Arc::from(path.file_name()?.to_string_lossy())),
+                            item: path,
+                        })
+                    }).collect();
+
+                    let dropdown = NamedDropdown::create(items, window, cx);
+
+                    let _dropdown_change_subscrption = cx.subscribe_in(&dropdown, window, move |page, entity, _: &SelectEvent<NamedDropdown<Arc<Path>>>, window, cx| {
+                        let selected = entity.read(cx).selected_value().map(|item| item.item.clone());
+
+                        if selected == page.last_selected_path {
+                            return;
+                        }
+                        page.last_selected_path = selected.clone();
+
+                        if let Some(selected) = selected {
+                            let (send, mut recv) = tokio::sync::mpsc::channel::<Arc<str>>(64);
+
+                            let text_field = cx.new(move |_| ReadonlyTextField::default());
+
+                            let text_field2 = text_field.clone();
+                            page._read_log_task = Some(cx.spawn(async move |_, cx| {
+                                while let Some(message) = recv.recv().await {
+                                    let _ = cx.update_entity(&text_field2, |text_field, _| {
+                                        text_field.add(message);
+                                    });
+                                }
+                                let _ = cx.update_entity(&text_field2, |text_field, _| {
+                                    text_field.shrink_to_fit();
+                                });
+                            }));
+
+                            page.backend_handle.send(MessageToBackend::ReadLog {
+                                path: selected.clone(),
+                                send,
+                            });
+
+                            let backend_handle = page.backend_handle.clone();
+                            page.log_content = Some(cx.new(move |cx| {
+                                ReadonlyTextFieldWithControls::new(text_field, Box::new(move |div| {
+                                    let backend_handle = backend_handle.clone();
+                                    let selected = selected.clone();
+                                    div.child(Button::new("upload").label("Upload").on_click(move |_, window, cx| {
+                                        root::upload_log_file(selected.clone(), &backend_handle, window, cx);
+                                    }))
+                                }), window, cx)
+                            }));
+                        } else {
+                            page._read_log_task = None;
+                            page.log_content = None;
+                        }
+
+                        cx.notify();
+                    });
+
+                    page._dropdown_change_subscrption = Some(_dropdown_change_subscrption);
+                    page.available_logs = Some(dropdown);
+
+                    if result.total_gzipped_size > 0 {
+                        let bytes = result.total_gzipped_size;
+                        let string = if bytes < 1000 {
+                            format!("Cleanup old log files ({} bytes)", bytes)
+                        } else if bytes < 1000*1000 {
+                            format!("Cleanup old log files ({}kB)", bytes/1000)
+                        } else if bytes < 1000*1000*1000 {
+                            format!("Cleanup old log files ({}MB)", bytes/1000/1000)
+                        } else {
+                            format!("Cleanup old log files ({}GB)", bytes/1000/1000/1000)
+                        };
+                        page.clean_old_logs_text = Some(string.into());
+                    }
+                }
+                cx.notify();
+            });
+        });
+
+        self.backend_handle.send(MessageToBackend::GetLogFiles {
+            instance: self.instance,
+            channel: send,
+        });
     }
 }
 
@@ -39,236 +161,45 @@ impl Render for InstanceLogsSubpage {
     fn render(&mut self, _window: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
         let theme = cx.theme();
 
-        // let state = self.mods_state.load(Ordering::SeqCst);
-        // if state.should_send_load_request() {
-        //     self.backend_handle.send_with_serial(MessageToBackend::RequestLoadMods { id: self.instance }, &self.mods_serial);
-        // }
+        let mut header = h_flex()
+            .gap_3()
+            .mb_1()
+            .ml_1()
+            .child(div().text_lg().child("Logs"));
 
-        // let header = h_flex()
-        //     .gap_4()
-        //     .mb_1()
-        //     .ml_1()
-        //     .child(div().text_lg().underline().child("Mods"))
-        //     .child(Button::new("sleep5s").label("Sleep 5s").success().compact().small().on_click({
-        //         let backend_handle = self.backend_handle.clone();
-        //         move |_, _, _| {
-        //             backend_handle.send(MessageToBackend::Sleep5s);
-        //         }
-        //     }))
-        //     .child(Button::new("update").label("Check for updates").success().compact().small().on_click({
-        //         let backend_handle = self.backend_handle.clone();
-        //         let instance_id = self.instance;
-        //         move |_, window, cx| {
-        //             crate::root::start_update_check(instance_id, &backend_handle, window, cx);
-        //         }
-        //     }))
-        //     .child(Button::new("addmr").label("Add from Modrinth").success().compact().small().on_click({
-        //         let instance = self.instance;
-        //         move |_, window, cx| {
-        //             cx.update_global::<LauncherRootGlobal, ()>(|global, cx| {
-        //                 global.root.update(cx, |launcher_root, cx| {
-        //                     launcher_root.ui.update(cx, |ui, cx| {
-        //                         ui.switch_page(crate::ui::PageType::Modrinth { installing_for: Some(instance) }, window, cx);
-        //                     });
-        //                 });
-        //             });
+        let mut content = div()
+            .size_full()
+            .border_1()
+            .rounded(theme.radius)
+            .border_color(theme.border);
 
-        //         }
-        //     }))
-        //     .child(Button::new("addfile").label("Add from file").success().compact().small().on_click({
-        //         let backend_handle = self.backend_handle.clone();
-        //         let instance = self.instance;
-        //         cx.listener(move |this, _, window, cx| {
-        //             let receiver = cx.prompt_for_paths(PathPromptOptions {
-        //                 files: true,
-        //                 directories: false,
-        //                 multiple: true,
-        //                 prompt: Some("Select mods to install".into())
-        //             });
-
-        //             let backend_handle = backend_handle.clone();
-        //             let add_from_file_task = window.spawn(cx, async move |cx| {
-        //                 let Ok(result) = receiver.await else {
-        //                     return;
-        //                 };
-        //                 _ = cx.update(move |window, cx| {
-        //                     match result {
-        //                         Ok(Some(paths)) => {
-        //                             let content_install = ContentInstall {
-        //                                 target: InstallTarget::Instance(instance),
-        //                                 files: paths.into_iter().map(|path| {
-        //                                     ContentInstallFile {
-        //                                         replace: None,
-        //                                         download: ContentDownload::File { path },
-        //                                         content_type: ContentType::Mod,
-        //                                         content_source: ContentSource::Manual,
-        //                                     }
-        //                                 }).collect(),
-        //                             };
-        //                             crate::root::start_install(content_install, &backend_handle, window, cx);
-        //                         },
-        //                         Ok(None) => {},
-        //                         Err(error) => {
-        //                             let error = format!("{}", error);
-        //                             let notification = Notification::new()
-        //                                 .autohide(false)
-        //                                 .with_type(NotificationType::Error)
-        //                                 .title(error);
-        //                             window.push_notification(notification, cx);
-        //                         },
-        //                     }
-        //                 });
-        //             });
-        //             this._add_from_file_task = Some(add_from_file_task);
-        //         })
-        //     }));
-
-        v_flex().p_4().size_full().child("Logs").child(
-            div()
-                .size_full()
-                .border_1()
-                .rounded(theme.radius)
-                .border_color(theme.border)
-                .bg(gpui::red()),
-        )
-    }
-}
-
-pub struct ModsListDelegate {
-    id: InstanceID,
-    backend_handle: BackendHandle,
-    mods: Vec<InstanceModSummary>,
-    searched: Vec<InstanceModSummary>,
-    confirming_delete: Arc<AtomicUsize>,
-    updating: Arc<Mutex<FxHashSet<u64>>>,
-}
-
-impl ListDelegate for ModsListDelegate {
-    type Item = ListItem;
-
-    fn items_count(&self, _section: usize, _cx: &App) -> usize {
-        self.searched.len()
-    }
-
-    fn render_item(&self, ix: IndexPath, _window: &mut Window, cx: &mut App) -> Option<Self::Item> {
-        let summary = self.searched.get(ix.row)?;
-
-        let icon = if let Some(png_icon) = summary.mod_summary.png_icon.as_ref() {
-            png_render_cache::render(Arc::clone(png_icon), cx)
+        if self.no_available_logs {
+            content = content.child(h_flex().justify_center().size_full().text_lg().child("No available logs"));
         } else {
-            gpui::img(ImageSource::Resource(Resource::Embedded("images/default_mod.png".into())))
-        };
+            if let Some(available_logs) = self.available_logs.as_ref() {
+                header = header.child(Select::new(&available_logs).small().mt_0p5().placeholder("Select log file"));
+            } else {
+                content = content.child(h_flex().justify_center().size_full().text_lg().gap_3().child("Loading available logs...").child(Spinner::new()));
+            }
 
-        const GRAY: Hsla = Hsla { h: 0.0, s: 0.0, l: 0.5, a: 1.0};
-
-        let description1 = v_flex()
-            .w_1_5()
-            .text_ellipsis()
-            .child(SharedString::from(summary.mod_summary.name.clone()))
-            .child(SharedString::from(summary.mod_summary.version_str.clone()));
-
-        let description2 = v_flex()
-            .text_color(GRAY)
-            .child(SharedString::from(summary.mod_summary.authors.clone()))
-            .child(SharedString::from(summary.filename.clone()));
-
-        let id = self.id;
-        let mod_id = summary.id;
-        let element_id = summary.filename_hash;
-
-        let delete_button = if self.confirming_delete.load(Ordering::Relaxed) == ix.row + 1 {
-            Button::new(("delete", element_id)).danger().icon(IconName::Check).on_click({
-                let backend_handle = self.backend_handle.clone();
-                move |_, _, _| {
-                    backend_handle.send(MessageToBackend::DeleteMod { id, mod_id });
-                }
-            })
-        } else {
-            let trash_icon = Icon::default().path("icons/trash-2.svg");
-            let confirming_delete = self.confirming_delete.clone();
-            let delete_ix = ix.row + 1;
-            Button::new(("delete", element_id)).danger().icon(trash_icon).on_click(move |_, _, _| {
-                confirming_delete.store(delete_ix, Ordering::Release);
-            })
-        };
-
-        let update_button = match summary.mod_summary.update_status.load(Ordering::Relaxed) {
-            bridge::instance::ContentUpdateStatus::Unknown => None,
-            bridge::instance::ContentUpdateStatus::ManualInstall => Some(
-                Button::new(("update", element_id)).warning().icon(Icon::default().path("icons/file-question-mark.svg"))
-                    .tooltip("Mod was installed manually - cannot automatically update")
-            ),
-            bridge::instance::ContentUpdateStatus::ErrorNotFound => Some(
-                Button::new(("update", element_id)).danger().icon(Icon::default().path("icons/triangle-alert.svg"))
-                    .tooltip("Error while checking updates - 404 not found")
-            ),
-            bridge::instance::ContentUpdateStatus::ErrorInvalidHash => Some(
-                Button::new(("update", element_id)).danger().icon(Icon::default().path("icons/triangle-alert.svg"))
-                    .tooltip("Error while checking updates - returned invalid hash")
-            ),
-            bridge::instance::ContentUpdateStatus::AlreadyUpToDate => Some(
-                Button::new(("update", element_id)).icon(Icon::default().path("icons/check.svg"))
-                    .tooltip("Mod is already up-to-date")
-            ),
-            bridge::instance::ContentUpdateStatus::Modrinth => {
-                let loading = self.updating.lock().unwrap().contains(&element_id);
-                Some(
-                    Button::new(("update", element_id)).success().loading(loading).icon(Icon::default().path("icons/download.svg"))
-                        .tooltip("Download update from Modrinth").on_click({
-                            let backend_handle = self.backend_handle.clone();
-                            let updating = self.updating.clone();
-                            move |_, window, cx| {
-                                updating.lock().unwrap().insert(element_id);
-                                crate::root::update_single_mod(id, mod_id, &backend_handle, window, cx);
-                            }
-                        })
-                )
-            },
-        };
-
-        let backend_handle = self.backend_handle.clone();
-
-        let mut item_content = h_flex()
-            .gap_1()
-            .child(
-                Switch::new(("toggle", element_id))
-                    .checked(summary.enabled)
-                    .on_click(move |checked, _, _| {
-                        backend_handle.send(MessageToBackend::SetModEnabled {
-                            id,
-                            mod_id,
-                            enabled: *checked,
-                        });
-                    })
-                    .px_2(),
-            )
-            .child(icon.size_16().min_w_16().min_h_16().grayscale(!summary.enabled))
-            .when(!summary.enabled, |this| this.line_through())
-            .child(description1)
-            .child(description2);
-
-        if let Some(update_button) = update_button {
-            item_content = item_content.child(h_flex().absolute().right_4().gap_2().child(update_button).child(delete_button))
-        } else {
-            item_content = item_content.child(delete_button.absolute().right_4())
+            if let Some(log_content) = self.log_content.clone() {
+                content = content.child(log_content);
+            } else if self.available_logs.is_some() {
+                content = content.child(h_flex().justify_center().size_full().text_lg().child("Select log file"));
+            }
         }
 
-        let item = ListItem::new(("item", element_id)).p_1().child(item_content);
+        if let Some(clean_old_logs_text) = self.clean_old_logs_text.clone() {
+            header = header.child(Button::new("cleanold").label(clean_old_logs_text).success().compact().small().on_click({
+                let backend_handle = self.backend_handle.clone();
+                let instance = self.instance.clone();
+                cx.listener(move |this, _, window, cx| {
+                    backend_handle.send(MessageToBackend::CleanupOldLogFiles { instance });
+                    this.get_log_files(window, cx);
+                })
+            }));
+        }
 
-        Some(item)
-    }
-
-    fn set_selected_index(&mut self, _ix: Option<IndexPath>, _window: &mut Window, _cx: &mut Context<ListState<Self>>) {
-    }
-
-    fn perform_search(&mut self, query: &str, _window: &mut Window, _cx: &mut Context<ListState<Self>>) -> Task<()> {
-        self.searched = self
-            .mods
-            .iter()
-            .filter(|m| m.mod_summary.name.contains(query) || m.mod_summary.id.contains(query))
-            .cloned()
-            .collect();
-
-        Task::ready(())
+        v_flex().p_4().size_full().child(header).child(content)
     }
 }

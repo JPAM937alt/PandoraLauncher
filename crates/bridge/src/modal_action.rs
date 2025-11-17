@@ -35,6 +35,7 @@ impl Deref for ModalAction {
 pub struct ModalActionVisitUrl {
     pub message: Arc<str>,
     pub url: Arc<str>,
+    pub prevent_auto_finish: bool,
 }
 
 #[derive(Default)]

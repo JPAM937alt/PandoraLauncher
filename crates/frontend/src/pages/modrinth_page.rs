@@ -27,7 +27,7 @@ enum ProjectType {
 pub struct ModrinthSearchPage {
     data: DataEntities,
     hits: Vec<ModrinthHit>,
-    breadcrumb: Breadcrumb,
+    breadcrumb: Box<dyn Fn() -> Breadcrumb>,
     install_for: Option<InstanceID>,
     loading: Option<Subscription>,
     pending_clear: bool,
@@ -44,16 +44,10 @@ pub struct ModrinthSearchPage {
 }
 
 impl ModrinthSearchPage {
-    pub fn new(data: &DataEntities, install_for: Option<InstanceID>, breadcrumb: Breadcrumb, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(data: &DataEntities, install_for: Option<InstanceID>, breadcrumb: Box<dyn Fn() -> Breadcrumb>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search_state = cx.new(|cx| InputState::new(window, cx).placeholder("Search mods...").clean_on_escape());
 
         let _search_input_subscription = cx.subscribe_in(&search_state, window, Self::on_search_input_event);
-
-        let breadcrumb = if install_for.is_some() {
-            breadcrumb.child("Add from Modrinth")
-        } else {
-            breadcrumb.child("Modrinth")
-        };
 
         let mut page = Self {
             data: data.clone(),
@@ -474,7 +468,13 @@ impl Render for ModrinthSearchPage {
 
         let parameters = v_flex().h_full().gap_3().child(type_button_group);
 
-        ui::page(cx, self.breadcrumb.clone()).child(h_flex().size_full().p_3().gap_3().child(parameters).child(content))
+        let breadcrumb = if self.install_for.is_some() {
+            (self.breadcrumb)().child("Add from Modrinth")
+        } else {
+            (self.breadcrumb)().child("Modrinth")
+        };
+
+        ui::page(cx, breadcrumb).child(h_flex().size_full().p_3().gap_3().child(parameters).child(content))
     }
 }
 

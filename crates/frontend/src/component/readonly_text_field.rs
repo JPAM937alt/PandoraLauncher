@@ -13,29 +13,12 @@ use gpui_component::{
 use lru::LruCache;
 use rustc_hash::FxBuildHasher;
 
-use bridge::{game_output::GameOutputLogLevel, keep_alive::KeepAlive};
-
-struct CachedShapedLogLevels {
-    fatal: Arc<ShapedLine>,
-    error: Arc<ShapedLine>,
-    warn: Arc<ShapedLine>,
-    info: Arc<ShapedLine>,
-    debug: Arc<ShapedLine>,
-    trace: Arc<ShapedLine>,
-    other: Arc<ShapedLine>,
-}
-
 struct CachedShapedLines {
-    last_time: Option<Arc<ShapedLine>>,
-    last_time_millis: i64,
-
-    thread: HashMap<Arc<str>, Arc<ShapedLine>>,
-
     item_lines: LruCache<usize, WrappedLines, FxBuildHasher>,
 }
 
-pub struct GameOutputItemState {
-    items: Vec<GameOutputItem>,
+struct ReadonlyTextFieldItemState {
+    items: Vec<TextFieldLine>,
     last_scrolled_item: usize,
     item_sizes: FenwickTree<usize>,
     total_line_count: usize,
@@ -43,18 +26,14 @@ pub struct GameOutputItemState {
     search_query: SharedString,
 }
 
-pub struct GameOutput {
+pub struct ReadonlyTextField {
     font: Font,
     scroll_state: Rc<RefCell<GameOutputScrollState>>,
-    pending: Vec<(i64, Arc<str>, GameOutputLogLevel, Arc<[Arc<str>]>)>,
-    item_state: Option<GameOutputItemState>,
-    time_column_width: Pixels,
-    thread_column_width: Pixels,
-    level_column_width: Pixels,
-    shaped_log_levels: Option<CachedShapedLogLevels>,
+    pending: Vec<Arc<str>>,
+    item_state: Option<ReadonlyTextFieldItemState>,
 }
 
-impl Default for GameOutput {
+impl Default for ReadonlyTextField {
     fn default() -> Self {
         Self {
             font: Font {
@@ -65,106 +44,51 @@ impl Default for GameOutput {
                 style: FontStyle::Normal,
             },
             scroll_state: Default::default(),
-            pending: Default::default(),
-            item_state: Some(GameOutputItemState {
+            pending: Vec::new(),
+            item_state: Some(ReadonlyTextFieldItemState {
                 items: Vec::new(),
                 last_scrolled_item: 0,
                 item_sizes: FenwickTree::new(),
                 total_line_count: 0,
                 cached_shaped_lines: CachedShapedLines {
-                    last_time: None,
-                    last_time_millis: 0,
-                    thread: HashMap::new(),
                     item_lines: LruCache::with_hasher(NonZeroUsize::new(256).unwrap(), FxBuildHasher),
                 },
                 search_query: SharedString::new_static(""),
             }),
-            time_column_width: Default::default(),
-            thread_column_width: Default::default(),
-            level_column_width: Default::default(),
-            shaped_log_levels: None,
         }
     }
 }
 
-impl GameOutput {
-    pub fn add(&mut self, time: i64, thread: Arc<str>, level: GameOutputLogLevel, text: Arc<[Arc<str>]>) {
-        self.pending.push((time, thread, level, text));
+impl ReadonlyTextField {
+    pub fn add(&mut self, line: Arc<str>) {
+        self.pending.push(line);
     }
 
-    fn shape_log_level(
-        &self,
-        level: &'static str,
-        color: Hsla,
-        text_system: &Arc<WindowTextSystem>,
-        text_style: &TextStyle,
-        font_size: Pixels,
-    ) -> Arc<ShapedLine> {
-        let level_run = TextRun {
-            len: level.len(),
-            font: self.font.clone(),
-            color,
-            background_color: text_style.background_color,
-            underline: text_style.underline,
-            strikethrough: text_style.strikethrough,
-        };
-        Arc::new(text_system.shape_line(SharedString::new_static(level), font_size, &[level_run], None))
-    }
-
-    pub fn apply_pending(&mut self, window: &mut Window, _cx: &mut App) {
-        if self.shaped_log_levels.is_none() {
-            let text_style = window.text_style();
-            let font_size = text_style.font_size.to_pixels(window.rem_size());
-            let text_system = window.text_system();
-
-            let levels = CachedShapedLogLevels {
-                fatal: self.shape_log_level("FATAL", hsla(0.0, 0.737, 0.418, 1.0), text_system, &text_style, font_size), // red-700
-                error: self.shape_log_level("ERROR", hsla(0.0, 0.842, 0.602, 1.0), text_system, &text_style, font_size), // red-500
-                warn: self.shape_log_level("WARN", hsla(24.6/360.0, 0.95, 0.531, 1.0), text_system, &text_style, font_size), // orange-500
-                info: self.shape_log_level("INFO", hsla(83.7/360.0, 0.805, 0.443, 1.0), text_system, &text_style, font_size), // lime-500
-                debug: self.shape_log_level("DEBUG", hsla(258.3/360.0, 0.895, 0.663, 1.0), text_system, &text_style, font_size), // violet-500
-                trace: self.shape_log_level("TRACE", hsla(198.6/360.0, 0.887, 0.484, 1.0), text_system, &text_style, font_size), // sky-500
-                other: self.shape_log_level("OTHER", hsla(0.0, 0.5, 0.5, 1.0), text_system, &text_style, font_size),
-            };
-
-            self.level_column_width = levels.fatal.width.max(levels.error.width).max(levels.warn.width)
-                .max(levels.info.width).max(levels.debug.width).max(levels.trace.width).max(levels.other.width) + font_size/2.0;
-            self.shaped_log_levels = Some(levels);
+    pub fn shrink_to_fit(&mut self) {
+        self.pending.shrink_to_fit();
+        if let Some(item_state) = self.item_state.as_mut() {
+            item_state.items.shrink_to_fit();
         }
+    }
+
+    pub fn apply_pending(&mut self) {
         let Some(item_state) = &mut self.item_state else {
             return;
         };
-        for (time, thread, level, text) in self.pending.drain(..) {
-            let shaped_level = match level {
-                GameOutputLogLevel::Fatal => self.shaped_log_levels.as_ref().unwrap().fatal.clone(),
-                GameOutputLogLevel::Error => self.shaped_log_levels.as_ref().unwrap().error.clone(),
-                GameOutputLogLevel::Warn => self.shaped_log_levels.as_ref().unwrap().warn.clone(),
-                GameOutputLogLevel::Info => self.shaped_log_levels.as_ref().unwrap().info.clone(),
-                GameOutputLogLevel::Debug => self.shaped_log_levels.as_ref().unwrap().debug.clone(),
-                GameOutputLogLevel::Trace => self.shaped_log_levels.as_ref().unwrap().trace.clone(),
-                GameOutputLogLevel::Other => self.shaped_log_levels.as_ref().unwrap().other.clone(),
-            };
-
+        for line in self.pending.drain(..) {
             let mut highlighted_text = None;
 
             if !item_state.search_query.is_empty() {
-                for (line_index, line) in text.iter().enumerate() {
-                    if let Some(found) = line.find(item_state.search_query.as_str()) {
-                        highlighted_text = Some((line_index, found..found+item_state.search_query.as_str().len()));
-                        break;
-                    }
+                if let Some(found) = line.find(item_state.search_query.as_str()) {
+                    highlighted_text = Some(found..found+item_state.search_query.as_str().len());
                 }
                 if highlighted_text.is_none() {
                     // Item doesn't match search query, push skipped item
-                    let backup_total_lines_while_skipped = text.len();
                     item_state.item_sizes.push(0);
-                    item_state.items.push(GameOutputItem {
-                        time: TimeShapedLine::Timestamp(time),
-                        thread: ThreadShapedLine::Thread(thread),
-                        level: shaped_level.clone(),
-                        text: text.clone(),
+                    item_state.items.push(TextFieldLine {
+                        line: line.clone(),
                         index: item_state.items.len(),
-                        backup_total_lines_while_skipped,
+                        backup_total_lines_while_skipped: 1,
                         total_lines: 0,
                         highlighted_text: None,
                         skip: true,
@@ -173,17 +97,13 @@ impl GameOutput {
                 }
             }
 
-            let total_lines = text.len();
-            item_state.item_sizes.push(total_lines);
-            item_state.total_line_count += total_lines;
-            item_state.items.push(GameOutputItem {
-                time: TimeShapedLine::Timestamp(time),
-                thread: ThreadShapedLine::Thread(thread),
-                level: shaped_level.clone(),
-                text: text.clone(),
+            item_state.item_sizes.push(1);
+            item_state.total_line_count += 1;
+            item_state.items.push(TextFieldLine {
+                line: line.clone(),
                 index: item_state.items.len(),
-                backup_total_lines_while_skipped: total_lines,
-                total_lines,
+                backup_total_lines_while_skipped: 1,
+                total_lines: 1,
                 highlighted_text,
                 skip: false,
             });
@@ -191,35 +111,21 @@ impl GameOutput {
     }
 }
 
-pub struct GameOutputList {
+pub struct ReadonlyTextFieldComponent {
     interactivity: Interactivity,
-    game_output: Entity<GameOutput>,
+    text_field: Entity<ReadonlyTextField>,
 }
 
-enum TimeShapedLine {
-    Timestamp(i64),
-    Shaped(Arc<ShapedLine>),
-}
-
-enum ThreadShapedLine {
-    Thread(Arc<str>),
-    Shaped(Arc<ShapedLine>),
-}
-
-struct GameOutputItem {
-    time: TimeShapedLine,
-    thread: ThreadShapedLine,
-    level: Arc<ShapedLine>,
-
-    text: Arc<[Arc<str>]>,
+struct TextFieldLine {
+    line: Arc<str>,
     index: usize,
     backup_total_lines_while_skipped: usize,
     total_lines: usize,
-    highlighted_text: Option<(usize, Range<usize>)>,
+    highlighted_text: Option<Range<usize>>,
     skip: bool,
 }
 
-impl GameOutputItem {
+impl TextFieldLine {
     pub fn compute_wrapped_text<'a>(
         &mut self,
         wrap_width: Pixels,
@@ -238,77 +144,75 @@ impl GameOutputItem {
             }
 
         if recompute {
+            let line = &self.line;
             let mut wrapped = Vec::new();
-            for (original_line_index, line) in self.text.iter().enumerate() {
-                let fragments = [LineFragment::Text { text: line }];
-                let boundaries = line_wrapper.wrap_line(&fragments, wrap_width);
+            let fragments = [LineFragment::Text { text: line }];
+            let boundaries = line_wrapper.wrap_line(&fragments, wrap_width);
 
-                let mut handle_segment = |wrapped_line: SharedString, from, to| {
-                    let runs: &[TextRun] = if let Some((highlight_line, highlight_range)) = &self.highlighted_text
-                        && *highlight_line == original_line_index
-                        && highlight_range.start < to
-                        && highlight_range.end > from
-                    {
-                        let highlight_start = highlight_range.start.max(from);
-                        let highlight_end = highlight_range.end.min(to);
+            let mut handle_segment = |wrapped_line: SharedString, from, to| {
+                let runs: &[TextRun] = if let Some(highlight_range) = &self.highlighted_text
+                    && highlight_range.start < to
+                    && highlight_range.end > from
+                {
+                    let highlight_start = highlight_range.start.max(from);
+                    let highlight_end = highlight_range.end.min(to);
 
-                        &[
-                            TextRun {
-                                len: highlight_start - from,
-                                font: font.clone(),
-                                color: text_style.color,
-                                background_color: text_style.background_color,
-                                underline: text_style.underline,
-                                strikethrough: text_style.strikethrough,
-                            },
-                            TextRun {
-                                len: highlight_end - highlight_start,
-                                font: font.clone(),
-                                color: gpui::black(),
-                                background_color: Some(gpui::yellow()),
-                                underline: text_style.underline,
-                                strikethrough: text_style.strikethrough,
-                            },
-                            TextRun {
-                                len: to - highlight_end,
-                                font: font.clone(),
-                                color: text_style.color,
-                                background_color: text_style.background_color,
-                                underline: text_style.underline,
-                                strikethrough: text_style.strikethrough,
-                            },
-                        ]
-                    } else {
-                        &[TextRun {
-                            len: wrapped_line.len(),
+                    &[
+                        TextRun {
+                            len: highlight_start - from,
                             font: font.clone(),
                             color: text_style.color,
                             background_color: text_style.background_color,
                             underline: text_style.underline,
                             strikethrough: text_style.strikethrough,
-                        }]
-                    };
-
-                    let shaped = text_system.shape_line(wrapped_line, font_size, runs, None);
-                    wrapped.push(shaped);
-                };
-
-                let mut last_boundary_ix = 0;
-                for boundary in boundaries {
-                    let wrapped_line = &line[last_boundary_ix..boundary.ix];
-                    let wrapped_line = SharedString::new(wrapped_line);
-                    (handle_segment)(wrapped_line, last_boundary_ix, boundary.ix);
-                    last_boundary_ix = boundary.ix;
-                }
-
-                // Push last segment
-                let wrapped_line = if last_boundary_ix == 0 {
-                    line.into()
+                        },
+                        TextRun {
+                            len: highlight_end - highlight_start,
+                            font: font.clone(),
+                            color: gpui::black(),
+                            background_color: Some(gpui::yellow()),
+                            underline: text_style.underline,
+                            strikethrough: text_style.strikethrough,
+                        },
+                        TextRun {
+                            len: to - highlight_end,
+                            font: font.clone(),
+                            color: text_style.color,
+                            background_color: text_style.background_color,
+                            underline: text_style.underline,
+                            strikethrough: text_style.strikethrough,
+                        },
+                    ]
                 } else {
-                    SharedString::new(&line[last_boundary_ix..])
+                    &[TextRun {
+                        len: wrapped_line.len(),
+                        font: font.clone(),
+                        color: text_style.color,
+                        background_color: text_style.background_color,
+                        underline: text_style.underline,
+                        strikethrough: text_style.strikethrough,
+                    }]
                 };
-                (handle_segment)(wrapped_line, last_boundary_ix, line.len());
+
+                let shaped = text_system.shape_line(wrapped_line, font_size, runs, None);
+                wrapped.push(shaped);
+            };
+
+            let mut last_boundary_ix = 0;
+            for boundary in boundaries {
+                let wrapped_line = &line[last_boundary_ix..boundary.ix];
+                let wrapped_line = SharedString::new(wrapped_line);
+                (handle_segment)(wrapped_line, last_boundary_ix, boundary.ix);
+                last_boundary_ix = boundary.ix;
             }
+
+            // Push last segment
+            let wrapped_line = if last_boundary_ix == 0 {
+                line.into()
+            } else {
+                SharedString::new(&line[last_boundary_ix..])
+            };
+            (handle_segment)(wrapped_line, last_boundary_ix, line.len());
 
             cache.item_lines.put(
                 self.index,
@@ -328,13 +232,13 @@ struct WrappedLines {
     lines: Vec<ShapedLine>,
 }
 
-impl InteractiveElement for GameOutputList {
+impl InteractiveElement for ReadonlyTextFieldComponent {
     fn interactivity(&mut self) -> &mut Interactivity {
         &mut self.interactivity
     }
 }
 
-impl IntoElement for GameOutputList {
+impl IntoElement for ReadonlyTextFieldComponent {
     type Element = Self;
 
     fn into_element(self) -> Self::Element {
@@ -342,7 +246,7 @@ impl IntoElement for GameOutputList {
     }
 }
 
-impl Element for GameOutputList {
+impl Element for ReadonlyTextFieldComponent {
     type RequestLayoutState = ();
     type PrepaintState = ();
 
@@ -412,40 +316,34 @@ impl Element for GameOutputList {
                     let mut bounds = bounds.inset(px(12.0));
                     bounds.size.width += px(12.0);
 
-                    cx.update_entity(&self.game_output, |game_output, cx| {
-                        game_output.apply_pending(window, cx);
+                    cx.update_entity(&self.text_field, |inner, cx| {
+                        inner.apply_pending();
 
                         let text_style = window.text_style();
 
                         let font_size = text_style.font_size.to_pixels(window.rem_size());
                         let line_height = font_size * 1.25;
 
-                        let text_width = bounds.size.width
-                            - game_output.time_column_width
-                            - game_output.thread_column_width
-                            - game_output.level_column_width;
+                        let text_width = bounds.size.width;
                         let wrap_width = text_width.max(font_size * 30);
 
-                        let mut line_wrapper = window.text_system().line_wrapper(game_output.font.clone(), font_size);
+                        let mut line_wrapper = window.text_system().line_wrapper(inner.font.clone(), font_size);
 
-                        let scroll_render_info = game_output.update_scrolling(line_height, wrap_width,
+                        let scroll_render_info = inner.update_scrolling(line_height, wrap_width,
                             font_size, &text_style, &mut line_wrapper, window.text_system());
 
-                        if let Some(item_state) = game_output.item_state.as_mut() && !item_state.items.is_empty() {
+                        if let Some(item_state) = inner.item_state.as_mut() && !item_state.items.is_empty() {
                             if scroll_render_info.reverse {
                                 paint_lines::<true>(
                                     item_state.items[..scroll_render_info.item+1].iter_mut().rev(),
                                     visible_bounds,
                                     bounds,
                                     scroll_render_info.offset,
-                                    &game_output.font,
+                                    &inner.font,
                                     &text_style,
                                     wrap_width,
                                     font_size,
                                     line_height,
-                                    &mut game_output.time_column_width,
-                                    &mut game_output.thread_column_width,
-                                    game_output.level_column_width,
                                     &mut item_state.item_sizes,
                                     &mut item_state.total_line_count,
                                     &mut line_wrapper,
@@ -459,14 +357,11 @@ impl Element for GameOutputList {
                                     visible_bounds,
                                     bounds,
                                     scroll_render_info.offset,
-                                    &game_output.font,
+                                    &inner.font,
                                     &text_style,
                                     wrap_width,
                                     font_size,
                                     line_height,
-                                    &mut game_output.time_column_width,
-                                    &mut game_output.thread_column_width,
-                                    game_output.level_column_width,
                                     &mut item_state.item_sizes,
                                     &mut item_state.total_line_count,
                                     &mut line_wrapper,
@@ -477,10 +372,10 @@ impl Element for GameOutputList {
                             }
                         }
 
-                        let mut scroll_state = game_output.scroll_state.borrow_mut();
+                        let mut scroll_state = inner.scroll_state.borrow_mut();
                         scroll_state.bounds_y = bounds.size.height;
                         scroll_state.line_height = line_height;
-                        scroll_state.lines = if let Some(item_state) = &game_output.item_state {
+                        scroll_state.lines = if let Some(item_state) = &inner.item_state {
                             item_state.total_line_count
                         } else {
                             0
@@ -498,7 +393,7 @@ struct ScrollRenderInfo {
     offset: Pixels,
 }
 
-impl GameOutput {
+impl ReadonlyTextField {
     fn update_scrolling(
         &mut self,
         line_height: Pixels,
@@ -693,7 +588,7 @@ impl GameOutput {
 }
 
 fn paint_lines<'a, const REVERSE: bool>(
-    items: impl Iterator<Item = &'a mut GameOutputItem>,
+    items: impl Iterator<Item = &'a mut TextFieldLine>,
     visible_bounds: Bounds<Pixels>,
     bounds: Bounds<Pixels>,
     offset: Pixels,
@@ -702,9 +597,6 @@ fn paint_lines<'a, const REVERSE: bool>(
     wrap_width: Pixels,
     font_size: Pixels,
     line_height: Pixels,
-    time_column_width: &mut Pixels,
-    thread_column_width: &mut Pixels,
-    level_column_width: Pixels,
     item_sizes: &mut FenwickTree<usize>,
     total_line_count: &mut usize,
     line_wrapper: &mut LineWrapperHandle,
@@ -737,27 +629,7 @@ fn paint_lines<'a, const REVERSE: bool>(
 
         let line_count = lines.len().max(1);
 
-        /*
-        let item_bounds = Bounds {
-            origin: if REVERSE {
-                let mut item_origin = line_origin.clone();
-                item_origin.y -= (line_count - 1) * line_height;
-                item_origin
-            } else {
-                line_origin
-            },
-            size: Size::new(wrap_width, line_count * line_height),
-        };
-        let item_background_color = if item.index & 1 == 0 {
-            Hsla { h: 0.0, s: 0.0, l: 0.06, a: 0.5 }
-        } else {
-            Hsla { h: 0.0, s: 0.0, l: 0.12, a: 0.5 }
-        };
-        window.paint_quad(fill(item_bounds,item_background_color));
-        */
-
         let mut line_origin = text_origin;
-        line_origin.x += *time_column_width + *thread_column_width + level_column_width;
         if REVERSE {
             for shaped in lines.iter().rev() {
                 if line_origin.y <= visible_bounds.origin.y + visible_bounds.size.height {
@@ -779,81 +651,6 @@ fn paint_lines<'a, const REVERSE: bool>(
                 line_origin.y += line_height;
             }
         }
-
-        // Shape time text if needed
-        if let TimeShapedLine::Timestamp(timestamp) = item.time {
-            if let Some(last_shaped_time) = &cache.last_time && cache.last_time_millis == timestamp {
-                item.time = TimeShapedLine::Shaped(Arc::clone(last_shaped_time));
-            } else {
-                let date_time = chrono::DateTime::from_timestamp_millis(timestamp).unwrap().with_timezone(&chrono::Local);
-                let time = format!("{}", date_time.time().format("%H:%M:%S%.3f"));
-                let time_run = TextRun {
-                    len: time.len(),
-                    font: font.clone(),
-                    color: text_style.color,
-                    background_color: text_style.background_color,
-                    underline: text_style.underline,
-                    strikethrough: text_style.strikethrough,
-                };
-                let shaped_time = Arc::new(window.text_system().shape_line(time.into(), font_size, &[time_run], None));
-
-                item.time = TimeShapedLine::Shaped(Arc::clone(&shaped_time));
-
-                *time_column_width = (*time_column_width).max(shaped_time.width + font_size / 2.0);
-
-                cache.last_time = Some(shaped_time);
-                cache.last_time_millis = timestamp;
-            }
-        }
-
-        // Render time text
-        let mut time_origin = text_origin;
-        if REVERSE {
-            time_origin.y -= (line_count - 1) * line_height;
-        }
-        if let TimeShapedLine::Shaped(shaped_time) = &item.time {
-            _ = shaped_time.paint(time_origin, line_height, window, cx);
-        }
-
-        // Shape thread text if needed
-        if let ThreadShapedLine::Thread(thread_name) = &item.thread {
-            if let Some(cached_thread_line) = cache.thread.get(thread_name) {
-                item.thread = ThreadShapedLine::Shaped(Arc::clone(cached_thread_line));
-            } else {
-                let thread_name = thread_name.clone();
-                let mut thread_run = vec![TextRun {
-                    len: thread_name.len(),
-                    font: font.clone(),
-                    color: text_style.color,
-                    background_color: text_style.background_color,
-                    underline: text_style.underline,
-                    strikethrough: text_style.strikethrough,
-                }];
-
-                let mut line_wrapper = window.text_system().line_wrapper(font.clone(), font_size);
-                let truncated = line_wrapper.truncate_line(thread_name.clone().into(), px(150.0), "…", &mut thread_run);
-
-                let shaped_thread_name =
-                    Arc::new(window.text_system().shape_line(truncated, font_size, &thread_run, None));
-
-                item.thread = ThreadShapedLine::Shaped(Arc::clone(&shaped_thread_name));
-
-                *thread_column_width = (*thread_column_width).max(shaped_thread_name.width + font_size / 2.0);
-
-                cache.thread.insert(thread_name, shaped_thread_name);
-            }
-        }
-
-        // Render thread text
-        if let ThreadShapedLine::Shaped(shaped_thread) = &item.thread {
-            let mut thread_origin = time_origin;
-            thread_origin.x += *time_column_width + *thread_column_width - shaped_thread.width - font_size / 2.0;
-            _ = shaped_thread.paint(thread_origin, line_height, window, cx);
-        }
-
-        let mut level_origin = time_origin;
-        level_origin.x += *time_column_width + *thread_column_width + level_column_width - item.level.width - font_size/2.0;
-        _ = item.level.paint(level_origin, line_height, window, cx);
 
         if line_count != item.total_lines {
             if item.total_lines < line_count {
@@ -880,12 +677,12 @@ fn paint_lines<'a, const REVERSE: bool>(
     }
 }
 
-pub struct GameOutputRoot {
+pub struct ReadonlyTextFieldWithControls {
     scrollbar_state: ScrollbarState,
     scroll_handler: ScrollHandler,
-    _keep_alive: KeepAlive,
-    game_output: Entity<GameOutput>,
+    text_field: Entity<ReadonlyTextField>,
     search_state: Entity<InputState>,
+    extra: Box<dyn Fn(Div) -> Div>,
     _search_task: Task<()>,
     _search_input_subscription: Subscription,
 }
@@ -991,14 +788,14 @@ impl ScrollHandleOffsetable for ScrollHandler {
     }
 }
 
-impl GameOutputRoot {
+impl ReadonlyTextFieldWithControls {
     pub fn new(
-        keep_alive: KeepAlive,
-        game_output: Entity<GameOutput>,
+        text_field: Entity<ReadonlyTextField>,
+        extra: Box<dyn Fn(Div) -> Div>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let scroll_state = Rc::clone(&game_output.read(cx).scroll_state);
+        let scroll_state = Rc::clone(&text_field.read(cx).scroll_state);
 
         let search_state = cx.new(|cx| InputState::new(window, cx).placeholder("Search").clean_on_escape());
 
@@ -1007,9 +804,9 @@ impl GameOutputRoot {
         Self {
             scrollbar_state: ScrollbarState::default(),
             scroll_handler: ScrollHandler { state: scroll_state },
-            _keep_alive: keep_alive,
-            game_output,
+            text_field,
             search_state,
+            extra,
             _search_task: Task::ready(()),
             _search_input_subscription,
         }
@@ -1026,7 +823,7 @@ impl GameOutputRoot {
             return;
         };
 
-        let item_state = self.game_output.update(cx, |game_output, _| game_output.item_state.take());
+        let item_state = self.text_field.update(cx, |game_output, _| game_output.item_state.take());
 
         let Some(mut item_state) = item_state else {
             return; // Already searching
@@ -1053,8 +850,8 @@ impl GameOutputRoot {
                 item_state.search_query = SharedString::new_static("");
 
                 this.update_in(window, |this, window, cx| {
-                    this.game_output.update(cx, |game_output, _| {
-                        game_output.item_state = Some(item_state);
+                    this.text_field.update(cx, |text_field, _| {
+                        text_field.item_state = Some(item_state);
                     });
                     this.search_state.update(cx, |input, cx| input.set_loading(false, window, cx));
                     cx.notify();
@@ -1066,11 +863,8 @@ impl GameOutputRoot {
                 item_state.total_line_count = 0;
                 for item in &mut item_state.items {
                     let mut contains = None;
-                    for (line_index, line) in item.text.iter().enumerate() {
-                        if let Some(found) = line.find(search_pattern.as_str()) {
-                            contains = Some((line_index, found..found+search_pattern.as_str().len()));
-                            break;
-                        }
+                    if let Some(found) = item.line.find(search_pattern.as_str()) {
+                        contains = Some(found..found+search_pattern.as_str().len());
                     }
                     if contains.is_some() {
                         lengths.push(item.total_lines);
@@ -1091,8 +885,8 @@ impl GameOutputRoot {
                 item_state.search_query = search_pattern;
 
                 this.update_in(window, |this, window, cx| {
-                    this.game_output.update(cx, |game_output, _| {
-                        game_output.item_state = Some(item_state);
+                    this.text_field.update(cx, |text_field, _| {
+                        text_field.item_state = Some(item_state);
                     });
                     this.search_state.update(cx, |input, cx| input.set_loading(false, window, cx));
                     cx.notify();
@@ -1105,14 +899,13 @@ impl GameOutputRoot {
     }
 }
 
-impl Render for GameOutputRoot {
+impl Render for ReadonlyTextFieldWithControls {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let search = Input::new(&self.search_state).prefix(Icon::new(IconName::Search).small());
 
         let bar = h_flex()
             .w_full()
             .rounded(cx.theme().radius)
-            .id("controls")
             .flex_1()
             .gap_4()
             .child(search)
@@ -1125,8 +918,9 @@ impl Render for GameOutputRoot {
                 let mut state = root.scroll_handler.state.borrow_mut();
                 state.scrolling = GameOutputScrolling::Bottom;
                 cx.notify();
-            })))
-            .child(Button::new("upload").label("Upload"));
+            })));
+
+        let bar = (self.extra)(bar);
 
         v_flex()
             .size_full()
@@ -1139,9 +933,9 @@ impl Render for GameOutputRoot {
                     .rounded(cx.theme().radius)
                     .border_1()
                     .border_color(cx.theme().border)
-                    .child(GameOutputList {
+                    .child(ReadonlyTextFieldComponent {
                         interactivity: Interactivity::new(),
-                        game_output: self.game_output.clone(),
+                        text_field: self.text_field.clone(),
                     })
                     .child(
                         div()

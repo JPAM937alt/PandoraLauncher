@@ -115,7 +115,7 @@ impl LauncherUI {
         }
     }
 
-    pub fn switch_page(&mut self, page: PageType, breadcrumb: Option<Breadcrumb>, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn switch_page(&mut self, page: PageType, breadcrumb: Option<Box<dyn Fn() -> Breadcrumb>>, window: &mut Window, cx: &mut Context<Self>) {
         let data = &self.data;
         match page {
             PageType::Instances => {
@@ -129,7 +129,7 @@ impl LauncherUI {
                 if let LauncherPage::Modrinth { installing_for: current_installing_for, .. } = self.page && current_installing_for == installing_for {
                     return;
                 }
-                let breadcrumb = breadcrumb.unwrap_or_else(|| Breadcrumb::new().text_xl());
+                let breadcrumb = breadcrumb.unwrap_or(Box::new(|| Breadcrumb::new().text_xl()));
                 let page = cx.new(|cx| {
                     ModrinthSearchPage::new(data, installing_for, breadcrumb, window, cx)
                 });
@@ -143,10 +143,9 @@ impl LauncherUI {
                 if let LauncherPage::InstancePage(current_id, ..) = self.page && current_id == id {
                     return;
                 }
-                let instances_item = BreadcrumbItem::new("Instances").on_click(|_, window, cx| {
+                let breadcrumb = breadcrumb.unwrap_or(Box::new(|| Breadcrumb::new().text_xl().child(BreadcrumbItem::new("Instances").on_click(|_, window, cx| {
                     root::switch_page(PageType::Instances, None, window, cx);
-                });
-                let breadcrumb = breadcrumb.unwrap_or_else(|| Breadcrumb::new().text_xl().child(instances_item));
+                }))));
                 self.page = LauncherPage::InstancePage(id, subpage, cx.new(|cx| {
                     InstancePage::new(id, subpage, data, breadcrumb, window, cx)
                 }));
@@ -254,7 +253,7 @@ impl Render for LauncherUI {
 
         h_resizable("container")
             .with_state(&self.sidebar_state)
-            .child(resizable_panel().size(px(150.)).size_range(px(125.)..px(200.)).child(sidebar))
+            .child(resizable_panel().size(px(150.)).size_range(px(130.)..px(200.)).child(sidebar))
             .child(self.page.clone().into_any_element())
     }
 }

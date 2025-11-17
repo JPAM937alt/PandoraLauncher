@@ -26,6 +26,16 @@ static REPLACEMENTS: Lazy<[(Regex, &'static str); 6]> = Lazy::new(|| {
     ]
 });
 
+pub fn replace(string: &str) -> Cow<'_, str> {
+    let mut replaced = Cow::Borrowed(string);
+    for (regex, replacement) in &*REPLACEMENTS {
+        if let Cow::Owned(new) = regex.replace_all(&replaced, *replacement) {
+            replaced = Cow::Owned(new);
+        }
+    }
+    replaced
+}
+
 pub fn start_game_output(stdout: ChildStdout, stderr: Option<ChildStderr>, sender: FrontendHandle) {
     let main_thread: Arc<str> = Arc::from("main");
     let empty_message: Arc<str> = Arc::from("<empty>");
@@ -34,8 +44,6 @@ pub fn start_game_output(stdout: ChildStdout, stderr: Option<ChildStderr>, sende
     let keep_alive = KeepAlive::new();
     let keep_alive_handle = keep_alive.create_handle();
     sender.send(MessageToFrontend::CreateGameOutputWindow { id, keep_alive });
-
-    let replacements = &*REPLACEMENTS;
 
     if let Some(stderr) = stderr {
         let sender = sender.clone();
@@ -52,12 +60,7 @@ pub fn start_game_output(stdout: ChildStdout, stderr: Option<ChildStderr>, sende
                         break; // EOF
                     },
                     Ok(_) => {
-                        let mut replaced = Cow::Borrowed(&*raw_text);
-                        for (regex, replacement) in replacements {
-                            if let Cow::Owned(new) = regex.replace_all(&replaced, *replacement) {
-                                replaced = Cow::Owned(new);
-                            }
-                        }
+                        let replaced = replace(&*raw_text);
 
                         sender.send(MessageToFrontend::AddGameOutput {
                             id,
@@ -232,30 +235,20 @@ pub fn start_game_output(stdout: ChildStdout, stderr: Option<ChildStderr>, sende
                                 let mut lines = Vec::new();
 
                                 if let Some(text) = text.as_mut() {
-                                    let mut replaced = Cow::Borrowed(&**text);
-                                    for (regex, replacement) in replacements {
-                                        if let Cow::Owned(new) = regex.replace_all(&replaced, *replacement) {
-                                            replaced = Cow::Owned(new);
-                                        }
-                                    }
+                                    let replaced = replace(&**text);
                                     if let Cow::Owned(replaced) = replaced {
                                         *text = replaced.into();
                                     }
                                 }
                                 if let Some(throwable) = throwable.as_mut() {
-                                    let mut replaced = Cow::Borrowed(&**throwable);
-                                    for (regex, replacement) in replacements {
-                                        if let Cow::Owned(new) = regex.replace_all(&replaced, *replacement) {
-                                            replaced = Cow::Owned(new);
-                                        }
-                                    }
+                                    let mut replaced = replace(&**throwable);
                                     if let Cow::Owned(replaced) = replaced {
                                         *throwable = replaced.into();
                                     }
                                 }
 
                                 if let Some(text) = &text {
-                                    let mut split = text.split("\n");
+                                    let mut split = text.split('\n');
                                     if let Some(first) = split.next() && let Some(second) = split.next() {
                                         lines.push(Arc::from(first.trim_end()));
                                         lines.push(Arc::from(second.trim_end()));
@@ -265,7 +258,7 @@ pub fn start_game_output(stdout: ChildStdout, stderr: Option<ChildStderr>, sende
                                     }
                                 }
                                 if let Some(throwable) = &throwable {
-                                    let mut split = throwable.split("\n");
+                                    let mut split = throwable.split('\n');
                                     if let Some(first) = split.next() && let Some(second) = split.next() {
                                         if let Some(text) = text.take() && lines.is_empty() {
                                             lines.push(text);
@@ -393,19 +386,14 @@ pub fn start_game_output(stdout: ChildStdout, stderr: Option<ChildStderr>, sende
                             }
                         }
 
-                        for line in raw_text.split("\n") {
+                        for line in raw_text.split('\n') {
                             let trimmed = line.trim_ascii();
 
                             if trimmed.is_empty() {
                                 continue;
                             }
 
-                            let mut replaced = Cow::Borrowed(trimmed);
-                            for (regex, replacement) in replacements {
-                                if let Cow::Owned(new) = regex.replace_all(&replaced, *replacement) {
-                                    replaced = Cow::Owned(new);
-                                }
-                            }
+                            let mut replaced = replace(trimmed);
 
                             sender.send(MessageToFrontend::AddGameOutput {
                                 id,

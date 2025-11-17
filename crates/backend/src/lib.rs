@@ -10,6 +10,7 @@ mod backend_filesystem;
 mod backend_handler;
 
 mod account;
+mod arcfactory;
 mod directories;
 mod install_content;
 mod instance;

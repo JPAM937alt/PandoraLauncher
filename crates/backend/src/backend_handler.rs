@@ -1,15 +1,16 @@
-use std::{path::Path, sync::{atomic::Ordering, Arc}, time::Duration};
+use std::{io::{BufRead, Read}, path::Path, sync::{atomic::Ordering, Arc}, time::{Duration, SystemTime}};
 
 use auth::{credentials::AccountCredentials, secret::PlatformSecretStorage};
 use bridge::{
-    install::{ContentDownload, ContentInstall, ContentInstallFile, ContentType, InstallTarget}, instance::{ContentUpdateStatus, InstanceStatus, ModSummary}, message::{MessageToBackend, MessageToFrontend}, meta::MetadataResult, modal_action::ProgressTracker
+    install::{ContentDownload, ContentInstall, ContentInstallFile, ContentType, InstallTarget}, instance::{ContentUpdateStatus, InstanceStatus, ModSummary}, message::{LogFiles, MessageToBackend, MessageToFrontend}, meta::MetadataResult, modal_action::{ModalActionVisitUrl, ProgressTracker}, serial::AtomicOptionSerial
 };
 use futures::{FutureExt, TryFutureExt};
 use schema::{content::ContentSource, modrinth::{ModrinthFile, ModrinthLoader}, version::{LaunchArgument, LaunchArgumentValue}};
-use tokio::sync::Semaphore;
+use serde::Deserialize;
+use tokio::{io::AsyncBufReadExt, sync::Semaphore};
 
 use crate::{
-    account::{BackendAccount, MinecraftLoginInfo}, instance::InstanceInfo, launch::{ArgumentExpansionKey, LaunchError}, log_reader, metadata::{items::{AssetsIndexMetadataItem, MinecraftVersionManifestMetadataItem, MinecraftVersionMetadataItem, ModrinthProjectVersionsMetadataItem, ModrinthSearchMetadataItem, ModrinthVersionUpdateMetadataItem, MojangJavaRuntimeComponentMetadataItem, MojangJavaRuntimesMetadataItem, VersionUpdateParameters}, manager::MetaLoadError}, mod_metadata::ModUpdateAction, BackendState, LoginError, WatchTarget
+    account::{BackendAccount, MinecraftLoginInfo}, arcfactory::ArcStrFactory, instance::InstanceInfo, launch::{ArgumentExpansionKey, LaunchError}, log_reader, metadata::{items::{AssetsIndexMetadataItem, MinecraftVersionManifestMetadataItem, MinecraftVersionMetadataItem, ModrinthProjectVersionsMetadataItem, ModrinthSearchMetadataItem, ModrinthVersionUpdateMetadataItem, MojangJavaRuntimeComponentMetadataItem, MojangJavaRuntimesMetadataItem, VersionUpdateParameters}, manager::MetaLoadError}, mod_metadata::ModUpdateAction, BackendState, LoginError, WatchTarget
 };
 
 impl BackendState {
@@ -538,6 +539,322 @@ impl BackendState {
             },
             MessageToBackend::Sleep5s => {
                 tokio::time::sleep(Duration::from_secs(5)).await;
+            },
+            MessageToBackend::ReadLog { path, send } => {
+                let frontend = self.send.clone();
+                let serial = AtomicOptionSerial::default();
+
+                let file = match std::fs::File::open(path) {
+                    Ok(file) => file,
+                    Err(e) => {
+                        let error = format!("Unable to read file: {e}");
+                        for line in error.split('\n') {
+                            let replaced = log_reader::replace(line.trim_ascii_end());
+                            if send.send(replaced.into()).await.is_err() {
+                                return;
+                            }
+                        }
+                        frontend.send_with_serial(MessageToFrontend::Refresh, &serial);
+                        return;
+                    },
+                };
+
+                let mut reader = std::io::BufReader::new(file);
+                let Ok(buffer) = reader.fill_buf() else {
+                    return;
+                };
+                if buffer.len() >= 2 && buffer[0] == 0x1F && buffer[1] == 0x8B {
+                    let gz_decoder = flate2::bufread::GzDecoder::new(reader);
+                    let mut buf_reader = std::io::BufReader::new(gz_decoder);
+                    tokio::task::spawn_blocking(move || {
+                        let mut line = String::new();
+                        let mut factory = ArcStrFactory::default();
+                        loop {
+                            match buf_reader.read_line(&mut line) {
+                                Ok(0) => return,
+                                Ok(_) => {
+                                    let replaced = log_reader::replace(line.trim_ascii_end());
+                                    if send.blocking_send(factory.create(&replaced)).is_err() {
+                                        return;
+                                    }
+                                    line.clear();
+                                    frontend.send_with_serial(MessageToFrontend::Refresh, &serial);
+                                },
+                                Err(e) => {
+                                    let error = format!("Error while reading file: {e}");
+                                    for line in error.split('\n') {
+                                        let replaced = log_reader::replace(line.trim_ascii_end());
+                                        if send.blocking_send(factory.create(&replaced)).is_err() {
+                                            return;
+                                        }
+                                    }
+                                    frontend.send_with_serial(MessageToFrontend::Refresh, &serial);
+                                    return;
+                                },
+                            }
+                        }
+                    });
+                    return;
+                }
+
+                let mut line: Vec<u8> = buffer.into();
+                let file = reader.into_inner();
+                let mut reader = tokio::io::BufReader::new(tokio::fs::File::from_std(file));
+
+                tokio::task::spawn(async move {
+                    let mut first = true;
+                    let mut factory = ArcStrFactory::default();
+                    loop {
+                        tokio::select! {
+                            _ = send.closed() => {
+                                return;
+                            },
+                            read = reader.read_until('\n' as u8, &mut line) => match read {
+                                Ok(0) => {
+                                    // EOF reached. If this file is being actively written to (e.g. latest.log),
+                                    // then there could be more data
+                                    tokio::time::sleep(Duration::from_millis(250)).await;
+                                },
+                                Ok(_) => {
+                                    match str::from_utf8(&*line) {
+                                        Ok(utf8) => {
+                                            if first {
+                                                first = false;
+                                                for line in utf8.split('\n') {
+                                                    let replaced = log_reader::replace(line.trim_ascii_end());
+                                                    if send.send(factory.create(&replaced)).await.is_err() {
+                                                        return;
+                                                    }
+                                                }
+                                            } else {
+                                                let replaced = log_reader::replace(utf8.trim_ascii_end());
+                                                if send.send(factory.create(&replaced)).await.is_err() {
+                                                    return;
+                                                }
+                                            }
+                                        },
+                                        Err(e) => {
+                                            let error = format!("Invalid UTF8: {e}");
+                                            for line in error.split('\n') {
+                                                let replaced = log_reader::replace(line.trim_ascii_end());
+                                                if send.blocking_send(factory.create(&replaced)).is_err() {
+                                                    return;
+                                                }
+                                            }
+                                        },
+                                    }
+                                    frontend.send_with_serial(MessageToFrontend::Refresh, &serial);
+                                    line.clear();
+                                },
+                                Err(e) => {
+                                    let error = format!("Error while reading file: {e}");
+                                    for line in error.split('\n') {
+                                        let replaced = log_reader::replace(line.trim_ascii_end());
+                                        if send.blocking_send(factory.create(&replaced)).is_err() {
+                                            return;
+                                        }
+                                    }
+                                    frontend.send_with_serial(MessageToFrontend::Refresh, &serial);
+                                    return;
+                                },
+                            }
+                        }
+                    }
+                });
+            },
+            MessageToBackend::GetLogFiles { instance: id, channel } => {
+                if let Some(instance) = self.instances.get_mut(id.index) && instance.id == id {
+                    let logs = instance.dot_minecraft_path.join("logs");
+
+                    if let Ok(read_dir) = std::fs::read_dir(logs) {
+                        let mut paths_with_time = Vec::new();
+                        let mut total_gzipped_size = 0;
+
+                        for file in read_dir {
+                            let Ok(entry) = file else {
+                                continue;
+                            };
+                            let Ok(metadata) = entry.metadata() else {
+                                continue;
+                            };
+                            let filename = entry.file_name();
+                            let Some(filename) = filename.to_str() else {
+                                continue;
+                            };
+
+                            if filename.ends_with(".log.gz") {
+                                total_gzipped_size += metadata.len();
+                            } else if !filename.ends_with(".log") {
+                                continue;
+                            }
+
+                            let created = metadata.created().unwrap_or(SystemTime::UNIX_EPOCH);
+                            let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+
+                            paths_with_time.push((Arc::from(entry.path()), created.max(modified)));
+                        }
+
+                        paths_with_time.sort_by_key(|(_, t)| *t);
+                        let paths = paths_with_time.into_iter().map(|(p, _)| p).rev().collect();
+
+                        let _ = channel.send(LogFiles { paths, total_gzipped_size: total_gzipped_size.min(usize::MAX as u64) as usize });
+                    }
+                }
+            },
+            MessageToBackend::CleanupOldLogFiles { instance: id } => {
+                let mut deleted = 0;
+
+                if let Some(instance) = self.instances.get_mut(id.index) && instance.id == id {
+                    let logs = instance.dot_minecraft_path.join("logs");
+
+                    if let Ok(read_dir) = std::fs::read_dir(logs) {
+                        for file in read_dir {
+                            let Ok(entry) = file else {
+                                continue;
+                            };
+
+                            let filename = entry.file_name();
+                            let Some(filename) = filename.to_str() else {
+                                continue;
+                            };
+
+                            if filename.ends_with(".log.gz") {
+                                if std::fs::remove_file(entry.path()).is_ok() {
+                                    deleted += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                self.send.send_success(format!("Deleted {} files", deleted));
+            },
+            MessageToBackend::UploadLogFile { path, modal_action } => {
+                let file = match std::fs::File::open(path) {
+                    Ok(file) => file,
+                    Err(e) => {
+                        let error = format!("Unable to read file: {e}");
+                        modal_action.set_error_message(log_reader::replace(&error).into());
+                        modal_action.set_finished();
+                        return;
+                    },
+                };
+
+                let tracker = ProgressTracker::new("Reading log file".into(), self.send.clone());
+                tracker.set_total(4);
+                tracker.notify();
+                modal_action.trackers.push(tracker.clone());
+
+                let mut reader = std::io::BufReader::new(file);
+                let Ok(buffer) = reader.fill_buf() else {
+                    tracker.set_finished(true);
+                    tracker.notify();
+                    return;
+                };
+
+                let mut content = String::new();
+
+                if buffer.len() >= 2 && buffer[0] == 0x1F && buffer[1] == 0x8B {
+                    let mut gz_decoder = flate2::bufread::GzDecoder::new(reader);
+                    if let Err(e) = gz_decoder.read_to_string(&mut content) {
+                        let error = format!("Error while reading file: {e}");
+                        modal_action.set_error_message(log_reader::replace(&error).into());
+                        modal_action.set_finished();
+                        return;
+                    }
+                } else {
+                    if let Err(e) = reader.read_to_string(&mut content) {
+                        let error = format!("Error while reading file: {e}");
+                        modal_action.set_error_message(log_reader::replace(&error).into());
+                        modal_action.set_finished();
+                        return;
+                    }
+                }
+
+                tracker.set_title("Redacting sensitive information".into());
+                tracker.set_count(1);
+                tracker.notify();
+
+                let replaced = log_reader::replace(&*content);
+
+                tracker.set_title("Uploading to mclo.gs".into());
+                tracker.set_count(2);
+                tracker.notify();
+
+                if replaced.trim_ascii().is_empty() {
+                    modal_action.set_error_message("Log file was empty, didn't upload".into());
+                    modal_action.set_finished();
+                    return;
+                }
+
+                let result = self.http_client.post("https://api.mclo.gs/1/log").form(&[("content", &*replaced)]).send().await;
+
+                let resp = match result {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        let error = format!("Error while uploading log: {e:?}");
+                        modal_action.set_error_message(error.into());
+                        modal_action.set_finished();
+                        return;
+                    },
+                };
+
+                tracker.set_count(3);
+                tracker.notify();
+
+                let bytes = match resp.bytes().await {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        let error = format!("Error while reading mclo.gs response: {e:?}");
+                        modal_action.set_error_message(error.into());
+                        modal_action.set_finished();
+                        return;
+                    },
+                };
+
+                #[derive(Deserialize)]
+                struct McLogsResponse {
+                    success: bool,
+                    url: Option<String>,
+                    error: Option<String>,
+                }
+
+                let response: McLogsResponse = match serde_json::from_slice(&bytes) {
+                    Ok(response) => response,
+                    Err(e) => {
+                        let error = format!("Error while deserializing mclo.gs response: {e:?}");
+                        modal_action.set_error_message(error.into());
+                        modal_action.set_finished();
+                        return;
+                    },
+                };
+
+                if response.success {
+                    if let Some(url) = response.url {
+                        modal_action.set_visit_url(ModalActionVisitUrl {
+                            message: format!("Open {}", url).into(),
+                            url: url.into(),
+                            prevent_auto_finish: true,
+                        });
+                        modal_action.set_finished();
+                    } else {
+                        modal_action.set_error_message("Success returned, but missing url".into());
+                        modal_action.set_finished();
+                    }
+                } else {
+                    if let Some(e) = response.error {
+                        let error = format!("mclo.gs rejected upload: {e}");
+                        modal_action.set_error_message(error.into());
+                        modal_action.set_finished();
+                    } else {
+                        modal_action.set_error_message("Failure returned, but missing error".into());
+                        modal_action.set_finished();
+                    }
+                }
+
+                tracker.set_count(4);
+                tracker.set_finished(false);
+                tracker.notify();
             },
         }
     }

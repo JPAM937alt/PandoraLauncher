@@ -40,3 +40,4 @@ lexical-sort.workspace = true
 indexmap.workspace = true
 serde_with.workspace = true
 once_cell.workspace = true
+tokio-util.workspace = true

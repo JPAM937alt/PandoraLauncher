@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::{path::Path, sync::{Arc, RwLock}};
 
 use bridge::{
     handle::BackendHandle,
@@ -128,9 +128,26 @@ pub fn update_single_mod(
     modals::generic::show_notification(window, cx, "Error downloading update".into(), modal_action);
 }
 
+pub fn upload_log_file(
+    path: Arc<Path>,
+    backend_handle: &BackendHandle,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let modal_action = ModalAction::default();
+
+    backend_handle.send(MessageToBackend::UploadLogFile {
+        path,
+        modal_action: modal_action.clone(),
+    });
+
+    let title: SharedString = "Uploading log file".into();
+    modals::generic::show_modal(window, cx, title, "Error uploading log file".into(), modal_action);
+}
+
 pub fn switch_page(
     page: PageType,
-    breadcrumb: Option<Breadcrumb>,
+    breadcrumb: Option<Box<dyn Fn() -> Breadcrumb>>,
     window: &mut Window,
     cx: &mut App,
 ) {

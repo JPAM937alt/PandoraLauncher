@@ -5,7 +5,7 @@ use bridge::{
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
-    breadcrumb::{Breadcrumb, BreadcrumbItem}, button::{Button, ButtonVariants}, h_flex, tab::{Tab, TabBar}, Icon, IconName
+    breadcrumb::Breadcrumb, button::{Button, ButtonVariants}, h_flex, tab::{Tab, TabBar}, Icon, IconName
 };
 
 use crate::{
@@ -15,7 +15,7 @@ use crate::{
 };
 
 pub struct InstancePage {
-    breadcrumb: Breadcrumb,
+    breadcrumb: Box<dyn Fn() -> Breadcrumb>,
     backend_handle: BackendHandle,
     title: SharedString,
     instance: Entity<InstanceEntry>,
@@ -24,7 +24,7 @@ pub struct InstancePage {
 }
 
 impl InstancePage {
-    pub fn new(instance_id: InstanceID, subpage: InstanceSubpageType, data: &DataEntities, breadcrumb: Breadcrumb, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(instance_id: InstanceID, subpage: InstanceSubpageType, data: &DataEntities, breadcrumb: Box<dyn Fn() -> Breadcrumb>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let instance = data.instances.read(cx).entries.get(&instance_id).unwrap().clone();
 
         let _instance_subscription = cx.observe(&instance, |page, instance, cx| {
@@ -87,7 +87,7 @@ impl Render for InstancePage {
                 }),
         };
 
-        let breadcrumb = self.breadcrumb.clone().child(self.title.clone());
+        let breadcrumb = (self.breadcrumb)().child(self.title.clone());
         ui::page(cx, h_flex().gap_8().child(breadcrumb).child(button))
             .child(
                 TabBar::new("bar")

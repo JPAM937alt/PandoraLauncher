@@ -114,8 +114,8 @@ impl Render for InstanceQuickplaySubpage {
             self.backend_handle.send_with_serial(MessageToBackend::RequestLoadServers { id: self.instance }, &self.servers_serial);
         }
 
-        let worlds_header = div().mb_1().ml_1().text_lg().underline().child("Worlds");
-        let servers_header = div().mb_1().ml_1().text_lg().underline().child("Servers");
+        let worlds_header = div().mb_1().ml_1().text_lg().child("Worlds");
+        let servers_header = div().mb_1().ml_1().text_lg().child("Servers");
 
         v_flex().p_4().gap_4().size_full().child(
             h_flex()

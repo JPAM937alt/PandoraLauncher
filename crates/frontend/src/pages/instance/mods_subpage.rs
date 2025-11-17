@@ -12,7 +12,7 @@ use gpui_component::{
 use rustc_hash::FxHashSet;
 use schema::content::ContentSource;
 
-use crate::{entity::instance::InstanceEntry, png_render_cache, root::{self, LauncherRootGlobal}};
+use crate::{entity::instance::InstanceEntry, png_render_cache, root};
 
 use super::instance_page::InstanceSubpageType;
 
@@ -92,16 +92,10 @@ impl Render for InstanceModsSubpage {
         }
 
         let header = h_flex()
-            .gap_4()
+            .gap_3()
             .mb_1()
             .ml_1()
-            .child(div().text_lg().underline().child("Mods"))
-            .child(Button::new("sleep5s").label("Sleep 5s").success().compact().small().on_click({
-                let backend_handle = self.backend_handle.clone();
-                move |_, _, _| {
-                    backend_handle.send(MessageToBackend::Sleep5s);
-                }
-            }))
+            .child(div().text_lg().child("Mods"))
             .child(Button::new("update").label("Check for updates").success().compact().small().on_click({
                 let backend_handle = self.backend_handle.clone();
                 let instance_id = self.instance;
@@ -114,14 +108,19 @@ impl Render for InstanceModsSubpage {
                 let instance_title = self.instance_title.clone();
                 move |_, window, cx| {
                     let page = crate::ui::PageType::Modrinth { installing_for: Some(instance) };
-                    let instances_item = BreadcrumbItem::new("Instances").on_click(|_, window, cx| {
-                        root::switch_page(crate::ui::PageType::Instances, None, window, cx);
-                    });
-                    let instance_item = BreadcrumbItem::new(instance_title.clone()).on_click(move |_, window, cx| {
-                        root::switch_page(crate::ui::PageType::InstancePage(instance, InstanceSubpageType::Mods), None, window, cx);
-                    });
-                    let breadcrumb = Breadcrumb::new().text_xl().child(instances_item).child(instance_item);
-                    root::switch_page(page, Some(breadcrumb), window, cx);
+
+                    let instance_title = instance_title.clone();
+                    let breadcrumb = move || {
+                        let instances_item = BreadcrumbItem::new("Instances").on_click(|_, window, cx| {
+                            root::switch_page(crate::ui::PageType::Instances, None, window, cx);
+                        });
+                        let instance_item = BreadcrumbItem::new(instance_title.clone()).on_click(move |_, window, cx| {
+                            root::switch_page(crate::ui::PageType::InstancePage(instance, InstanceSubpageType::Mods), None, window, cx);
+                        });
+                        Breadcrumb::new().text_xl().child(instances_item).child(instance_item)
+                    };
+
+                    root::switch_page(page, Some(Box::new(breadcrumb)), window, cx);
 
                 }
             }))

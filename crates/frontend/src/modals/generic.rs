@@ -102,15 +102,19 @@ pub fn show_modal(
         if let Some(finished_at) = modal_action.get_finished_at() {
             is_finishing = true;
 
-            let elapsed = finished_at.elapsed().as_secs_f32();
-            window.request_animation_frame();
-            if elapsed >= 2.0 {
-                window.defer(cx, |window, cx| {
-                    window.close_dialog(cx);
-                });
-                return modal.opacity(0.0);
-            } else if elapsed >= 1.0 {
-                modal_opacity = 2.0 - elapsed;
+            let prevent_finish = modal_action.visit_url.read().unwrap().as_ref().map(|v| v.prevent_auto_finish).unwrap_or(false);
+
+            if !prevent_finish {
+                let elapsed = finished_at.elapsed().as_secs_f32();
+                window.request_animation_frame();
+                if elapsed >= 2.0 {
+                    window.defer(cx, |window, cx| {
+                        window.close_dialog(cx);
+                    });
+                    return modal.opacity(0.0);
+                } else if elapsed >= 1.0 {
+                    modal_opacity = 2.0 - elapsed;
+                }
             }
         }
 

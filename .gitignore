@@ -2,3 +2,4 @@
 perf.data*
 client_id.txt
 flamegraph.svg
+heaptrack*

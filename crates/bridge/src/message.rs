@@ -1,4 +1,4 @@
-use std::{ffi::OsString, sync::Arc};
+use std::{ffi::OsString, path::{Path, PathBuf}, sync::Arc};
 
 use schema::loader::Loader;
 use ustr::Ustr;
@@ -67,6 +67,21 @@ pub enum MessageToBackend {
         modal_action: ModalAction,
     },
     Sleep5s,
+    ReadLog {
+        path: Arc<Path>,
+        send: tokio::sync::mpsc::Sender<Arc<str>>
+    },
+    GetLogFiles {
+        instance: InstanceID,
+        channel: tokio::sync::oneshot::Sender<LogFiles>,
+    },
+    CleanupOldLogFiles {
+        instance: InstanceID,
+    },
+    UploadLogFile {
+        path: Arc<Path>,
+        modal_action: ModalAction,
+    }
 }
 
 #[derive(Debug)]
@@ -131,6 +146,12 @@ pub enum MessageToFrontend {
         result: Result<MetadataResult, Arc<str>>,
         keep_alive_handle: Option<KeepAliveHandle>,
     },
+}
+
+#[derive(Debug)]
+pub struct LogFiles {
+    pub paths: Vec<Arc<Path>>,
+    pub total_gzipped_size: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
