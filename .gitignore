@@ -1,4 +1,5 @@
 /target
+/dist
 perf.data*
 client_id.txt
 flamegraph.svg
