@@ -186,18 +186,8 @@ impl ModMetadataManager {
             png_icon = load_icon(icon_file);
         }
 
-        let authors = if let Some(authors) = fabric_mod_json.authors && !authors.is_empty() {
-            let mut authors_string = "By ".to_owned();
-            let mut first = true;
-            for author in authors {
-                if first {
-                    first = false;
-                } else {
-                    authors_string.push_str(", ");
-                }
-                authors_string.push_str(author.name());
-            }
-            authors_string.into()
+        let authors = if let Some(authors) = fabric_mod_json.authors && let Some(authors) = create_authors_string(&authors) {
+            authors.into()
         } else {
             "".into()
         };
@@ -304,14 +294,28 @@ impl ModMetadataManager {
         });
         let summaries = futures::executor::block_on(futures::future::join_all(summaries_fut));
 
+        let mut png_icon = None;
+
+        if let Ok(icon) = archive.by_name("icon.png") {
+            png_icon = load_icon(icon);
+        }
+
+        let authors = if let Some(authors) = modrinth_index_json.authors && let Some(authors) = create_authors_string(&authors) {
+            authors.into()
+        } else if let Some(author) = modrinth_index_json.author {
+            format!("By {}", author.name()).into()
+        } else {
+            "".into()
+        };
+
         Some(Arc::new(ModSummary {
             id: "".into(),
             hash,
             name: modrinth_index_json.name,
             lowercase_search_key: lowercase_search_key.into(),
-            authors: "".into(),
+            authors,
             version_str: format!("v{}", modrinth_index_json.version_id).into(),
-            png_icon: None,
+            png_icon,
             update_status: Arc::new(AtomicContentUpdateStatus::new(ContentUpdateStatus::Unknown)),
             extra: LoaderSpecificModSummary::ModrinthModpack {
                 downloads: modrinth_index_json.files,
@@ -350,6 +354,24 @@ fn load_icon<R: Read + Seek>(mut icon_file: ZipFile<'_, &mut R>) -> Option<Arc<[
     }
 
     Some(icon_bytes.into())
+}
+
+fn create_authors_string(authors: &[Person]) -> Option<String> {
+    if !authors.is_empty() {
+        let mut authors_string = "By ".to_owned();
+        let mut first = true;
+        for author in authors {
+            if first {
+                first = false;
+            } else {
+                authors_string.push_str(", ");
+            }
+            authors_string.push_str(author.name());
+        }
+        Some(authors_string.into())
+    } else {
+        None
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -402,6 +424,14 @@ struct ModrinthIndexJson {
     version_id: Arc<str>,
     name: Arc<str>,
     files: Arc<[ModrinthModpackFileDownload]>,
+
+    // Unofficial
+    #[serde(default)]
+    #[serde(deserialize_with = "skip_if_deserialization_fails")]
+    authors: Option<Vec<Person>>,
+    #[serde(default)]
+    #[serde(deserialize_with = "skip_if_deserialization_fails")]
+    author: Option<Person>,
 }
 
 #[serde_as]
@@ -435,5 +465,16 @@ impl<'de> DeserializeAs<'de, [u8; 20]> for DeserializeAsHex {
     where
         D: serde::Deserializer<'de> {
         hex::serde::deserialize(deserializer)
+    }
+}
+
+fn skip_if_deserialization_fails<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    match T::deserialize(deserializer) {
+        Ok(value) => Ok(Some(value)),
+        Err(_) => Ok(None),
     }
 }
