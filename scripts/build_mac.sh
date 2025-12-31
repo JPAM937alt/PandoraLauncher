@@ -7,7 +7,6 @@ fi
 
 version=${1#v}
 
-
 cargo build --release --target aarch64-apple-darwin
 cargo build --release --target x86_64-apple-darwin
 
@@ -22,6 +21,7 @@ cargo install cargo-packager
 cargo packager --config '{'\
 '  "name": "pandora-launcher",'\
 '  "outDir": "./dist",'\
+'  "formats": ["dmg"],'\
 '  "productName": "Pandora Launcher",'\
 '  "version": "'"$version"'",'\
 '  "identifier": "com.moulberry.pandoralauncher",'\
