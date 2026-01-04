@@ -218,7 +218,6 @@ fn open_from_entity(
                     .read(cx)
                     .entries
                     .iter()
-                    .rev()
                     .filter_map(|(_, instance)| {
                         let instance = instance.read(cx);
 
