@@ -1,5 +1,5 @@
 use std::{
-    borrow::Cow, cmp::Ordering, collections::{HashMap, HashSet}, ffi::{OsStr, OsString}, io::Write, os::unix::ffi::OsStrExt, path::{Path, PathBuf}, process::{Child, Stdio}, sync::{atomic::AtomicBool, Arc, OnceLock}
+    borrow::Cow, cmp::Ordering, collections::{HashMap, HashSet}, ffi::{OsStr, OsString}, io::Write, path::{Path, PathBuf}, process::{Child, Stdio}, sync::{atomic::AtomicBool, Arc, OnceLock}
 };
 
 use bridge::{
@@ -987,8 +987,12 @@ impl Launcher {
                 let key = expand_forge_argument(key, data);
                 let value = expand_forge_argument(value, data);
 
+                let Some(value) = value.to_str() else {
+                    return false;
+                };
+
                 let mut expected_hash = [0u8; 20];
-                let Ok(_) = hex::decode_to_slice(value.as_bytes(), &mut expected_hash) else {
+                let Ok(_) = hex::decode_to_slice(value, &mut expected_hash) else {
                     return false;
                 };
 
