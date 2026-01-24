@@ -304,7 +304,7 @@ impl Instance {
     }
 
     fn load_worlds_dirty(dirty: HashSet<Arc<Path>>, last: Arc<[InstanceWorldSummary]>) -> Arc<[InstanceWorldSummary]> {
-        log::info!("Loading changed worlds");
+        log::debug!("Loading changed worlds");
         log::trace!("Changed worlds: {:?}", dirty);
 
         let mut summaries = Vec::with_capacity(64);
@@ -536,7 +536,7 @@ impl Instance {
         mod_metadata_manager: Arc<ModMetadataManager>,
         last: Arc<[InstanceContentSummary]>,
     ) -> Vec<InstanceContentSummary> {
-        log::info!("Loading changed content");
+        log::debug!("Loading changed content");
         log::trace!("Changed content: {:?}", dirty);
 
         let mut summaries = Vec::with_capacity(last.len() + 8);
