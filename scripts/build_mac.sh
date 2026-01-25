@@ -30,4 +30,4 @@ cargo packager --config '{'\
 '  "icons": ["package/mac.icns"]'\
 '}'
 
-mv dist/PandoraLauncher-macOS dist/PandoraLauncher-macOS-$version-Universal
+mv dist/PandoraLauncher-macOS dist/PandoraLauncher-macOS-$version-Universal-Portable

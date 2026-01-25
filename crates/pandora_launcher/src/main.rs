@@ -27,10 +27,14 @@ pub mod panic;
 fn main() {
     let args = Args::parse();
 
-    let base_dirs = directories::BaseDirs::new().unwrap();
-    let data_dir = base_dirs.data_dir();
-    let launcher_dir = data_dir.join("PandoraLauncher");
+    let data_dir = if let Some(portable_dir) = get_portable_dir() {
+        portable_dir
+    } else {
+        let base_dirs = directories::BaseDirs::new().unwrap();
+        base_dirs.data_dir().into()
+    };
 
+    let launcher_dir = data_dir.join("PandoraLauncher");
     _ = std::env::set_current_dir(&launcher_dir);
 
     let log_path = launcher_dir.join("launcher.log");
@@ -240,4 +244,15 @@ fn setup_logging(level: log::LevelFilter) -> Result<(), fern::InitError> {
         .apply()?;
 
     Ok(())
+}
+
+fn get_portable_dir() -> Option<PathBuf> {
+    let current_exe = std::env::current_exe().ok()?;
+    let file_name = current_exe.file_name()?;
+    let file_name = file_name.to_string_lossy();
+    if file_name.to_lowercase().contains("portable") {
+        Some(current_exe.parent()?.into())
+    } else {
+        None
+    }
 }
