@@ -137,7 +137,7 @@ impl BackendState {
                                 ContentInstallPath::Automatic => {
                                     let base = if let Some(mod_summary) = &mod_summary {
                                         match mod_summary.extra {
-                                            ContentType::Fabric | ContentType::Forge | ContentType::NeoForge | ContentType::JavaModule | ContentType::ModrinthModpack { .. } => {
+                                            ContentType::Fabric | ContentType::Forge | ContentType::LegacyForge | ContentType::NeoForge | ContentType::JavaModule | ContentType::ModrinthModpack { .. } => {
                                                 Path::new("mods")
                                             },
                                             ContentType::ResourcePack => {

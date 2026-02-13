@@ -85,6 +85,7 @@ pub struct ContentSummary {
 #[derive(Debug, Clone)]
 pub enum ContentType {
     Fabric,
+    LegacyForge,
     Forge,
     NeoForge,
     JavaModule,

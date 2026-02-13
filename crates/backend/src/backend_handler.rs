@@ -458,7 +458,7 @@ impl BackendState {
                                                 params: fabric_mod_params.clone()
                                             }).await
                                         },
-                                        ContentType::Forge => {
+                                        ContentType::Forge | ContentType::LegacyForge => {
                                             meta.fetch(&ModrinthVersionUpdateMetadataItem {
                                                 sha1: hex::encode(summary.content_summary.hash).into(),
                                                 params: forge_mod_params.clone()
