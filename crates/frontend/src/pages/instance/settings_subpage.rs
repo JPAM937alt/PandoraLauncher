@@ -8,7 +8,7 @@ use gpui_component::{
     button::{Button, ButtonGroup, ButtonVariants}, checkbox::Checkbox, h_flex, input::{Input, InputEvent, InputState, NumberInput, NumberInputEvent}, notification::{Notification, NotificationType}, select::{SearchableVec, Select, SelectEvent, SelectState}, skeleton::Skeleton, spinner::Spinner, v_flex, ActiveTheme as _, Disableable, Selectable, Sizable, WindowExt
 };
 use once_cell::sync::Lazy;
-use schema::{fabric_loader_manifest::FabricLoaderManifest, forge::{ForgeMavenManifest, NeoforgeMavenManifest}, instance::{InstanceJvmBinaryConfiguration, InstanceJvmFlagsConfiguration, InstanceLinuxWrapperConfiguration, InstanceMemoryConfiguration, InstanceSystemLibrariesConfiguration, LwjglLibraryPath}, loader::Loader, version_manifest::MinecraftVersionManifest};
+use schema::{fabric_loader_manifest::FabricLoaderManifest, forge::{ForgeMavenManifest, NeoforgeMavenManifest}, instance::{InstanceJvmBinaryConfiguration, InstanceJvmFlagsConfiguration, InstanceLinuxWrapperConfiguration, InstanceMemoryConfiguration, InstanceSystemLibrariesConfiguration, LwjglLibraryPath, AUTO_LIBRARY_PATH_GLFW, AUTO_LIBRARY_PATH_OPENAL}, loader::Loader, version_manifest::MinecraftVersionManifest};
 use strum::IntoEnumIterator;
 
 use crate::{entity::{DataEntities, instance::InstanceEntry, metadata::{AsMetadataResult, FrontendMetadata, FrontendMetadataResult, FrontendMetadataState, TypelessFrontendMetadataResult}}, interface_config::InterfaceConfig, pages::instances_page::VersionList};
@@ -494,12 +494,12 @@ impl InstanceSettingsSubpage {
     fn create_lwjgl_library_path(path: &Option<Arc<Path>>, auto: &Option<Arc<Path>>) -> LwjglLibraryPath {
         if let Some(path) = path {
             if let Some(auto) = auto && path == auto {
-                LwjglLibraryPath::Auto(path.clone())
+                LwjglLibraryPath::AutoPreferred(path.clone())
             } else {
                 LwjglLibraryPath::Explicit(path.clone())
             }
         } else {
-            LwjglLibraryPath::None
+            LwjglLibraryPath::Auto
         }
     }
 
@@ -873,36 +873,4 @@ fn opt_path_to_string(path: &Option<Arc<Path>>) -> SharedString {
     } else {
         SharedString::new_static("<unset>")
     }
-}
-
-static AUTO_LIBRARY_PATH_GLFW: Lazy<Option<Arc<Path>>> = Lazy::new(|| get_shared_library_path_for_name("glfw"));
-static AUTO_LIBRARY_PATH_OPENAL: Lazy<Option<Arc<Path>>> = Lazy::new(|| get_shared_library_path_for_name("openal"));
-
-#[cfg(not(unix))]
-fn get_shared_library_path_for_name(name: &str) -> Option<Arc<Path>> {
-    None
-}
-
-#[cfg(unix)]
-fn get_shared_library_path_for_name(name: &str) -> Option<Arc<Path>> {
-    let filename = format!("{}{}{}", std::env::consts::DLL_PREFIX, name, std::env::consts::DLL_SUFFIX);
-
-    let search_paths = &[
-        "/lib/",
-        "/lib64/",
-        "/usr/lib/",
-        "/usr/lib64/",
-        "/usr/local/lib/",
-        #[cfg(target_os = "macos")]
-        "/opt/homebrew/lib/"
-    ];
-
-    for search_path in search_paths {
-        let path = Path::new(search_path).join(&filename);
-        if path.exists() {
-            return Some(path.into());
-        }
-    }
-
-    None
 }
