@@ -403,11 +403,15 @@ impl ModrinthSearchPage {
                 let environment = h_flex().gap_1().font_bold().child(env_icon).child(env_name);
 
                 let categories = hit.display_categories.iter().flat_map(|categories| {
-                    categories.iter().map(|category| {
+                    categories.iter().filter_map(|category| {
+                        if category == "minecraft" {
+                            return None;
+                        }
+
                         let icon = icon_for(category).unwrap_or("icons/diamond.svg");
                         let icon = Icon::empty().path(icon);
                         let translated_category = ts!(format!("modrinth.category.{}", category));
-                        h_flex().gap_0p5().child(icon).child(translated_category)
+                        Some(h_flex().gap_0p5().child(icon).child(translated_category))
                     })
                 });
 
