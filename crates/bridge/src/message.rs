@@ -5,7 +5,7 @@ use std::{
 use enumset::EnumSet;
 use rustc_hash::FxHashMap;
 use schema::{
-    backend_config::{BackendConfig, SyncTargets}, instance::{
+    backend_config::{BackendConfig, ProxyConfig, SyncTargets}, instance::{
         InstanceConfiguration, InstanceJvmBinaryConfiguration, InstanceJvmFlagsConfiguration,
         InstanceLinuxWrapperConfiguration, InstanceMemoryConfiguration, InstanceSystemLibrariesConfiguration, InstanceWrapperCommandConfiguration,
     }, loader::Loader, pandora_update::{UpdateManifest, UpdateManifestExe, UpdatePrompt}
@@ -21,6 +21,12 @@ use crate::{
 };
 
 #[derive(Debug)]
+#[derive(Default)]
+pub struct BackendConfigWithPassword {
+    pub config: BackendConfig,
+    pub proxy_password: Option<String>,
+}
+
 pub enum MessageToBackend {
     RequestMetadata {
         request: MetadataRequest,
@@ -146,7 +152,7 @@ pub enum MessageToBackend {
         channel: tokio::sync::oneshot::Sender<SyncState>,
     },
     GetBackendConfiguration {
-        channel: tokio::sync::oneshot::Sender<BackendConfig>,
+        channel: tokio::sync::oneshot::Sender<BackendConfigWithPassword>,
     },
     SetSyncing {
         target: Arc<str>,
@@ -175,6 +181,10 @@ pub enum MessageToBackend {
     },
     SetOpenGameOutputAfterLaunching {
         value: bool,
+    },
+    SetProxyConfiguration {
+        config: ProxyConfig,
+        password: Option<String>,
     },
     CreateInstanceShortcut {
         id: InstanceID,
