@@ -14,7 +14,7 @@ use ustr::Ustr;
 use crate::{
     component::{error_alert::ErrorAlert, page::Page, page_path::PagePath}, entity::{
         DataEntities, instance::InstanceEntries, metadata::{AsMetadataResult, FrontendMetadata, FrontendMetadataResult}
-    }, interface_config::InterfaceConfig, ts, ts_short, ui
+    }, icon::PandoraIcon, interface_config::InterfaceConfig, ts, ts_short, ui
 };
 
 pub struct ModrinthSearchPage {
@@ -391,24 +391,24 @@ impl ModrinthSearchPage {
 
                 let (env_icon, env_name) = match (client_side, server_side) {
                     (ModrinthSideRequirement::Required, ModrinthSideRequirement::Required) => {
-                        (Icon::empty().path("icons/globe.svg"), ts!("modrinth.environment.client_and_server"))
+                        (PandoraIcon::Globe, ts!("modrinth.environment.client_and_server"))
                     },
                     (ModrinthSideRequirement::Required, ModrinthSideRequirement::Unsupported) => {
-                        (Icon::empty().path("icons/computer.svg"), ts!("modrinth.environment.client_only"))
+                        (PandoraIcon::Computer, ts!("modrinth.environment.client_only"))
                     },
                     (ModrinthSideRequirement::Required, ModrinthSideRequirement::Optional) => {
-                        (Icon::empty().path("icons/computer.svg"), ts!("modrinth.environment.client_only_server_optional"))
+                        (PandoraIcon::Computer, ts!("modrinth.environment.client_only_server_optional"))
                     },
                     (ModrinthSideRequirement::Unsupported, ModrinthSideRequirement::Required) => {
-                        (Icon::empty().path("icons/router.svg"), ts!("modrinth.environment.server_only"))
+                        (PandoraIcon::Router, ts!("modrinth.environment.server_only"))
                     },
                     (ModrinthSideRequirement::Optional, ModrinthSideRequirement::Required) => {
-                        (Icon::empty().path("icons/router.svg"), ts!("modrinth.environment.server_only_client_optional"))
+                        (PandoraIcon::Router, ts!("modrinth.environment.server_only_client_optional"))
                     },
                     (ModrinthSideRequirement::Optional, ModrinthSideRequirement::Optional) => {
-                        (Icon::empty().path("icons/globe.svg"), ts!("modrinth.environment.client_or_server"))
+                        (PandoraIcon::Globe, ts!("modrinth.environment.client_or_server"))
                     },
-                    _ => (Icon::empty().path("icons/cpu.svg"), ts!("modrinth.environment.unknown_environment")),
+                    _ => (PandoraIcon::Cpu, ts!("modrinth.environment.unknown_environment")),
                 };
 
                 let environment = h_flex().gap_1().font_bold().child(env_icon).child(env_name);
@@ -426,10 +426,9 @@ impl ModrinthSearchPage {
                     })
                 });
 
-                let download_icon = Icon::empty().path("icons/download.svg");
                 let downloads = h_flex()
                     .gap_0p5()
-                    .child(download_icon.clone())
+                    .child(PandoraIcon::Download)
                     .child(format_downloads(hit.downloads));
 
                 let primary_action = self.get_primary_action(&hit.project_id, cx);
@@ -513,7 +512,7 @@ impl ModrinthSearchPage {
                     .child(
                         Button::new(("open", index))
                             .label(ts!("instance.content.open_page"))
-                            .icon(IconName::Globe)
+                            .icon(PandoraIcon::Globe)
                             .info()
                             .on_click({
                                 let project_type = hit.project_type.as_str();
@@ -647,15 +646,15 @@ impl PrimaryAction {
         }
     }
 
-    pub fn icon(&self) -> Icon {
+    pub fn icon(&self) -> PandoraIcon {
         match self {
-            PrimaryAction::Install => Icon::empty().path("icons/download.svg"),
-            PrimaryAction::Reinstall => Icon::empty().path("icons/download.svg"),
-            PrimaryAction::InstallLatest => Icon::empty().path("icons/download.svg"),
-            PrimaryAction::CheckForUpdates => Icon::default().path("icons/refresh-ccw.svg"),
-            PrimaryAction::ErrorCheckingForUpdates => Icon::default().path("icons/triangle-alert.svg"),
-            PrimaryAction::UpToDate => Icon::default().path("icons/check.svg"),
-            PrimaryAction::Update(..) => Icon::empty().path("icons/download.svg"),
+            PrimaryAction::Install => PandoraIcon::Download,
+            PrimaryAction::Reinstall => PandoraIcon::Download,
+            PrimaryAction::InstallLatest => PandoraIcon::Download,
+            PrimaryAction::CheckForUpdates => PandoraIcon::RefreshCcw,
+            PrimaryAction::ErrorCheckingForUpdates => PandoraIcon::TriangleAlert,
+            PrimaryAction::UpToDate => PandoraIcon::Check,
+            PrimaryAction::Update(..) => PandoraIcon::Download,
         }
     }
 
@@ -801,7 +800,7 @@ impl Render for ModrinthSearchPage {
             .child(
                 Button::new("toggle-categories")
                     .label(ts!("instance.content.categories"))
-                    .icon(if is_shown { IconName::ChevronDown } else { IconName::ChevronRight })
+                    .icon(if is_shown { PandoraIcon::ChevronDown } else { PandoraIcon::ChevronRight })
                     .when(!is_shown, |this| this.outline())
                     .on_click(move |_, _, _| {
                         show_categories.store(!is_shown, std::sync::atomic::Ordering::Relaxed);

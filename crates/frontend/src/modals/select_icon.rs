@@ -7,7 +7,7 @@ use gpui_component::{
 };
 use parking_lot::RwLock;
 
-use crate::ts;
+use crate::{icon::PandoraIcon, ts};
 
 pub fn open_select_icon(
     selected: Box<dyn FnOnce(EmbeddedOrRaw, &mut App)>,
@@ -41,7 +41,7 @@ pub fn open_select_icon(
         let content = v_flex()
             .size_full()
             .gap_2()
-            .child(Button::new("custom").success().label(ts!("common.custom")).icon(IconName::File).on_click({
+            .child(Button::new("custom").success().label(ts!("common.custom")).icon(PandoraIcon::File).on_click({
                 let selected = selected.clone();
                 let select_file_task = select_file_task.clone();
                 move |_, window, cx| {

@@ -9,7 +9,7 @@ use gpui_component::{
 use once_cell::sync::Lazy;
 use rustc_hash::FxHashSet;
 
-use crate::{component::page::Page, entity::DataEntities, ts, ui};
+use crate::{component::page::Page, entity::DataEntities, icon::PandoraIcon, ts, ui};
 
 pub struct SyncingPage {
     backend_handle: BackendHandle,
@@ -114,7 +114,7 @@ impl SyncingPage {
             }
             if enabled && cannot_sync_count > 0 {
                 base = base.child(h_flex().gap_1().flex_shrink().text_color(warning)
-                    .child(Icon::default().path("icons/triangle-alert.svg"))
+                    .child(PandoraIcon::TriangleAlert)
                     .child(ts!("instance.sync.unable_count", num1 = cannot_sync_count, num2 = sync_state.total_count))
                 );
             }
@@ -143,7 +143,7 @@ impl Render for SyncingPage {
         let info = cx.theme().blue;
         let content = v_flex().size_full().p_3().gap_3()
             .child(ts!("instance.sync.description"))
-            .child(Button::new("open").info().icon(IconName::FolderOpen).label(ts!("instance.sync.open_folder")).on_click(move |_, window, cx| {
+            .child(Button::new("open").info().icon(PandoraIcon::FolderOpen).label(ts!("instance.sync.open_folder")).on_click(move |_, window, cx| {
                 crate::open_folder(&sync_folder, window, cx);
             }).w_72())
             .child(div().border_b_1().border_color(cx.theme().border).text_lg().child(ts!("instance.sync.files")))

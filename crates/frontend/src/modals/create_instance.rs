@@ -7,7 +7,7 @@ use gpui_component::{
 };
 use schema::{loader::Loader, version_manifest::{MinecraftVersionManifest, MinecraftVersionType}};
 
-use crate::{entity::{instance::InstanceEntries, metadata::{AsMetadataResult, FrontendMetadata, FrontendMetadataResult, FrontendMetadataState}}, interface_config::InterfaceConfig, pages::instances_page::VersionList, ts};
+use crate::{entity::{instance::InstanceEntries, metadata::{AsMetadataResult, FrontendMetadata, FrontendMetadataResult, FrontendMetadataState}}, icon::PandoraIcon, interface_config::InterfaceConfig, pages::instances_page::VersionList, ts};
 
 struct CreateInstanceModalState {
     metadata: Entity<FrontendMetadata>,
@@ -198,7 +198,7 @@ impl CreateInstanceModalState {
     pub fn render(&mut self, modal: Dialog, window: &mut Window, cx: &mut Context<Self>) -> Dialog {
         if let Some(error) = self.error_loading_versions.clone() {
             let error_widget = Alert::new("error", format!("{}", error))
-                .icon(IconName::CircleX)
+                .icon(PandoraIcon::CircleX)
                 .title(ts!("instance.versions_loading.error"));
 
             let metadata = self.metadata.clone();
@@ -281,7 +281,7 @@ impl CreateInstanceModalState {
             ))
             .child(crate::labelled(ts!("instance.version"), v_flex().gap_2().child(version_dropdown).child(show_snapshots_button)))
             .child(crate::labelled(ts!("instance.modloader"), loader_button_group))
-            .child(h_flex().child(Button::new("icon").icon(IconName::Plus).label(ts!("instance.select_icon")).on_click({
+            .child(h_flex().child(Button::new("icon").icon(PandoraIcon::Plus).label(ts!("instance.select_icon")).on_click({
                 let entity = cx.entity();
                 move |_, window, cx| {
                     let entity = entity.clone();

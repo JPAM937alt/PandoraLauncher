@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bridge::{instance::InstanceID, message::MessageToBackend};
 use gpui::{prelude::*, *};
 use gpui_component::{
-    ActiveTheme as _, Disableable, Icon, IconName, WindowExt, button::{Button, ButtonVariants}, h_flex, input::{Input, InputState}, resizable::{ResizablePanelEvent, ResizableState, h_resizable, resizable_panel}, scroll::ScrollableElement, sidebar::SidebarFooter, v_flex
+    ActiveTheme as _, Disableable, Icon, IconName, IconNamed, WindowExt, button::{Button, ButtonVariants}, h_flex, input::{Input, InputState}, resizable::{ResizablePanelEvent, ResizableState, h_resizable, resizable_panel}, scroll::ScrollableElement, sidebar::SidebarFooter, v_flex
 };
 use rand::Rng;
 use schema::modrinth::ModrinthProjectType;
@@ -12,8 +12,8 @@ use uuid::Uuid;
 
 use crate::{
     component::{menu::{MenuGroup, MenuGroupItem}, page_path::PagePath}, entity::{
-        instance::{InstanceAddedEvent, InstanceEntries, InstanceModifiedEvent, InstanceMovedToTopEvent, InstanceRemovedEvent}, DataEntities
-    }, interface_config::InterfaceConfig, modals, pages::{import::ImportPage, instance::instance_page::{InstancePage, InstanceSubpageType}, instances_page::InstancesPage, modrinth_page::ModrinthSearchPage, syncing_page::SyncingPage}, png_render_cache, root, ts
+        DataEntities, instance::{InstanceAddedEvent, InstanceEntries, InstanceModifiedEvent, InstanceMovedToTopEvent, InstanceRemovedEvent}
+    }, icon::PandoraIcon, interface_config::InterfaceConfig, modals, pages::{import::ImportPage, instance::instance_page::{InstancePage, InstanceSubpageType}, instances_page::InstancesPage, modrinth_page::ModrinthSearchPage, syncing_page::SyncingPage}, png_render_cache, root, ts
 };
 
 pub struct LauncherUI {
@@ -337,8 +337,6 @@ impl Render for LauncherUI {
             )
         };
 
-        let pandora_icon = Icon::empty().path("icons/pandora.svg");
-
         let account_button = div().max_w_full().flex_grow().id("account-button").child(SidebarFooter::new()
             .w_full()
             .justify_center()
@@ -356,13 +354,11 @@ impl Render for LauncherUI {
 
                     let accounts = accounts.clone();
                     let backend_handle = backend_handle.clone();
-                    window.open_sheet_at(gpui_component::Placement::Left, cx, move |sheet, window, cx| {
+                    window.open_sheet_at(gpui_component::Placement::Left, cx, move |sheet, _, cx| {
                         let (accounts, selected_account) = {
                             let accounts = accounts.read(cx);
                             (accounts.accounts.clone(), accounts.selected_account_uuid)
                         };
-
-                        let trash_icon = Icon::default().path("icons/trash-2.svg");
 
                         let items = accounts.iter().map(|account| {
                             let head = if let Some(head) = &account.head {
@@ -396,7 +392,7 @@ impl Render for LauncherUI {
                                         })
                                     }))
                                 .child(Button::new((account_name.clone(), 1))
-                                    .icon(trash_icon.clone())
+                                    .icon(PandoraIcon::Trash2)
                                     .h_10()
                                     .w_10()
                                     .danger()
@@ -414,13 +410,13 @@ impl Render for LauncherUI {
                             .title(ts!("account.title"))
                             .child(v_flex()
                                 .gap_2()
-                                .child(Button::new("add-account").h_10().success().icon(IconName::Plus).label(ts!("account.add.label")).on_click({
+                                .child(Button::new("add-account").h_10().success().icon(PandoraIcon::Plus).label(ts!("account.add.label")).on_click({
                                     let backend_handle = backend_handle.clone();
                                     move |_, window, cx| {
                                         crate::root::start_new_account_login(&backend_handle, window, cx);
                                     }
                                 }))
-                                .child(Button::new("add-offline").h_10().success().icon(IconName::Plus).label(ts!("account.add.offline")).on_click({
+                                .child(Button::new("add-offline").h_10().success().icon(PandoraIcon::Plus).label(ts!("account.add.offline")).on_click({
                                     let backend_handle = backend_handle.clone();
                                     move |_, window, cx| {
                                         let name_input = cx.new(|cx| {
@@ -487,7 +483,7 @@ impl Render for LauncherUI {
                 this.bg(cx.theme().sidebar_accent)
                     .text_color(cx.theme().sidebar_accent_foreground)
             })
-            .child(IconName::Settings)
+            .child(PandoraIcon::Settings)
             .on_click({
                 let data = self.data.clone();
                 move |_, window, cx| {
@@ -504,9 +500,10 @@ impl Render for LauncherUI {
             .w_full()
             .justify_center()
             .text_size(rems(0.9375))
-            .child(pandora_icon.size_8().min_w_8().min_h_8())
+            .child(Icon::new(PandoraIcon::Pandora).size_8().min_w_8().min_h_8())
             .child(ts!("common.app_name"));
-        let footer = h_flex().pb_3().px_3().flex_wrap().justify_center().w_full().child(settings_button).child(account_button);
+        let footer_buttons = h_flex().child(settings_button).child(PandoraIcon::Bug);
+        let footer = v_flex().pb_3().px_3().items_center().w_full().child(footer_buttons).child(account_button);
         let sidebar = v_flex()
             .w_full()
             .bg(cx.theme().sidebar)

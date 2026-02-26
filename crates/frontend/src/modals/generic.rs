@@ -9,7 +9,7 @@ use gpui_component::{
 use crate::{component::{
     error_alert::ErrorAlert,
     progress_bar::{ProgressBar, ProgressBarColor},
-}, ts};
+}, icon::PandoraIcon, ts};
 
 pub fn show_notification(
     window: &mut Window,
@@ -179,7 +179,7 @@ pub fn show_modal(
         if let Some(visit_url) = &*modal_action.visit_url.read().unwrap() {
             let message = SharedString::new(Arc::clone(&visit_url.message));
             let url = Arc::clone(&visit_url.url);
-            progress_entries.push(div().p_3().child(Button::new("visit").info().icon(IconName::Globe).label(message).on_click(
+            progress_entries.push(div().p_3().child(Button::new("visit").info().icon(PandoraIcon::Globe).label(message).on_click(
                 move |_, _, cx| {
                     cx.open_url(&url);
                 },

@@ -15,7 +15,7 @@ use gpui_component::{
 };
 use schema::backend_config::{BackendConfig, ProxyConfig, ProxyProtocol};
 
-use crate::{entity::DataEntities, interface_config::InterfaceConfig, ts};
+use crate::{entity::DataEntities, icon::PandoraIcon, interface_config::InterfaceConfig, ts};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum SettingsTab {
@@ -258,13 +258,13 @@ impl Settings {
                 ts!("settings.theme.title"),
                 Select::new(&self.theme_select)
             ))
-            .child(Button::new("open-theme-folder").info().icon(IconName::FolderOpen).label(ts!("settings.theme.open_folder")).on_click({
+            .child(Button::new("open-theme-folder").info().icon(PandoraIcon::FolderOpen).label(ts!("settings.theme.open_folder")).on_click({
                 let theme_folder = self.theme_folder.clone();
                 move |_, window, cx| {
                     crate::open_folder(&theme_folder, window, cx);
                 }
             }))
-            .child(Button::new("open-theme-repo").info().icon(IconName::Globe).label(ts!("settings.theme.open_repo")).on_click({
+            .child(Button::new("open-theme-repo").info().icon(PandoraIcon::Globe).label(ts!("settings.theme.open_repo")).on_click({
                 move |_, _, cx| {
                     cx.open_url("https://github.com/longbridge/gpui-component/tree/main/themes");
                 }

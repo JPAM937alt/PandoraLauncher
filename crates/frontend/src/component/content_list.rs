@@ -12,7 +12,7 @@ use gpui_component::{
 use parking_lot::Mutex;
 use rustc_hash::FxHashSet;
 
-use crate::{interface_config::InterfaceConfig, png_render_cache, ts};
+use crate::{icon::PandoraIcon, interface_config::InterfaceConfig, png_render_cache, ts};
 
 #[derive(Clone)]
 struct ContentEntryChild {
@@ -81,7 +81,7 @@ impl ContentListDelegate {
         let element_id = summary.filename_hash;
 
         let delete_button = if self.confirming_delete.lock().contains(&element_id) {
-            Button::new(("delete", element_id)).danger().icon(IconName::Check).on_click({
+            Button::new(("delete", element_id)).danger().icon(PandoraIcon::Check).on_click({
                 let backend_handle = self.backend_handle.clone();
                 cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
@@ -98,10 +98,9 @@ impl ContentListDelegate {
                 })
             })
         } else {
-            let trash_icon = Icon::default().path("icons/trash-2.svg");
             let confirming_delete = self.confirming_delete.clone();
             let backend_handle = self.backend_handle.clone();
-            Button::new(("delete", element_id)).danger().icon(trash_icon).on_click(cx.listener(move |this, click: &ClickEvent, _, cx| {
+            Button::new(("delete", element_id)).danger().icon(PandoraIcon::Trash2).on_click(cx.listener(move |this, click: &ClickEvent, _, cx| {
                 cx.stop_propagation();
                 let delegate = this.delegate();
 
@@ -133,25 +132,25 @@ impl ContentListDelegate {
         let update_button = match summary.content_summary.update_status.load(Ordering::Relaxed) {
             bridge::instance::ContentUpdateStatus::Unknown => None,
             bridge::instance::ContentUpdateStatus::ManualInstall => Some(
-                Button::new(("update", element_id)).warning().icon(Icon::default().path("icons/file-question-mark.svg"))
+                Button::new(("update", element_id)).warning().icon(PandoraIcon::FileQuestionMark)
                     .tooltip(ts!("instance.content.update.installed_manually"))
             ),
             bridge::instance::ContentUpdateStatus::ErrorNotFound => Some(
-                Button::new(("update", element_id)).danger().icon(Icon::default().path("icons/triangle-alert.svg"))
+                Button::new(("update", element_id)).danger().icon(PandoraIcon::TriangleAlert)
                     .tooltip(ts!("instance.content.update.check.error_404"))
             ),
             bridge::instance::ContentUpdateStatus::ErrorInvalidHash => Some(
-                Button::new(("update", element_id)).danger().icon(Icon::default().path("icons/triangle-alert.svg"))
+                Button::new(("update", element_id)).danger().icon(PandoraIcon::TriangleAlert)
                     .tooltip(ts!("instance.content.update.check.invalid_hash_error"))
             ),
             bridge::instance::ContentUpdateStatus::AlreadyUpToDate => Some(
-                Button::new(("update", element_id)).icon(Icon::default().path("icons/check.svg"))
+                Button::new(("update", element_id)).icon(PandoraIcon::Check)
                     .tooltip(ts!("instance.content.update.check.last_up_to_date"))
             ),
             bridge::instance::ContentUpdateStatus::Modrinth => {
                 let loading = self.updating.lock().contains(&element_id);
                 Some(
-                    Button::new(("update", element_id)).success().loading(loading).icon(Icon::default().path("icons/download.svg"))
+                    Button::new(("update", element_id)).success().loading(loading).icon(PandoraIcon::Download)
                         .tooltip(ts!("instance.content.update.download.from_modrinth")).on_click({
                             let backend_handle = self.backend_handle.clone();
                             let updating = self.updating.clone();
@@ -214,9 +213,9 @@ impl ContentListDelegate {
             toggle_control.into_any_element()
         } else {
             let expand_icon = if expanded {
-                IconName::ArrowDown
+                PandoraIcon::ArrowDown
             } else {
-                IconName::ArrowRight
+                PandoraIcon::ArrowRight
             };
 
             let expand_control = Button::new(("expand", element_id)).icon(expand_icon).compact().small().info().on_click({

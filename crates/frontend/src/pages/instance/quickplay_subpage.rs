@@ -17,7 +17,7 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::{entity::instance::InstanceEntry, png_render_cache, root, ts};
+use crate::{entity::instance::InstanceEntry, icon::PandoraIcon, png_render_cache, root, ts};
 
 pub struct InstanceQuickplaySubpage {
     instance: InstanceID,
@@ -182,8 +182,6 @@ impl ListDelegate for WorldsListDelegate {
                 .child(SharedString::from(summary.subtitle.clone())),
         );
 
-        let play_icon = Icon::empty().path("icons/play.svg");
-
         let id = self.id;
         let name = self.name.clone();
         let backend_handle = self.backend_handle.clone();
@@ -193,7 +191,7 @@ impl ListDelegate for WorldsListDelegate {
                 .gap_1()
                 .child(
                     div()
-                        .child(Button::new(ix).success().icon(play_icon).on_click(move |_, window, cx| {
+                        .child(Button::new(ix).success().icon(PandoraIcon::Play).on_click(move |_, window, cx| {
                             root::start_instance(
                                 id,
                                 name.clone(),
@@ -250,8 +248,6 @@ impl ListDelegate for ServersListDelegate {
             .child(SharedString::from(summary.name.clone()))
             .child(div().text_color(Hsla { h: 0.0, s: 0.0, l: 0.5, a: 1.0}).child(SharedString::from(summary.ip.clone())));
 
-        let play_icon = Icon::empty().path("icons/play.svg");
-
         let id = self.id;
         let name = self.name.clone();
         let backend_handle = self.backend_handle.clone();
@@ -261,7 +257,7 @@ impl ListDelegate for ServersListDelegate {
                 .gap_1()
                 .child(
                     div()
-                        .child(Button::new(ix).success().icon(play_icon).on_click(move |_, window, cx| {
+                        .child(Button::new(ix).success().icon(PandoraIcon::Play).on_click(move |_, window, cx| {
                             root::start_instance(
                                 id,
                                 name.clone(),
