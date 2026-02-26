@@ -196,7 +196,7 @@ mod inner {
     }
 
     fn write(target: &str, bytes: Option<Vec<u8>>) -> Result<(), SecretStorageError> {
-        let Some(bytes) = bytes else {
+        let Some(mut bytes) = bytes else {
             return delete(target);
         };
 
